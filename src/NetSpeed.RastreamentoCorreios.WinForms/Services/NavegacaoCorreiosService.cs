@@ -43,10 +43,10 @@ public sealed class NavegacaoCorreiosService(ConfiguracaoAutomacao configuracao,
             await conclusao.Task.WaitAsync(limite.Token);
             logger.LogInformation("Documento principal carregado. A disponibilidade dos resultados ainda precisa ser verificada.");
         }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException excecao) when (!cancellationToken.IsCancellationRequested)
         {
             navegador.Stop();
-            throw new TimeoutException("O portal demorou mais que o limite configurado para carregar.");
+            throw new TimeoutException("O portal demorou mais que o limite configurado para carregar.", excecao);
         }
         catch (OperationCanceledException)
         {

@@ -71,6 +71,8 @@ public partial class FormularioPrincipal : Form
         botaoCopiar.Click += AoCopiarJson;
         botaoExportar.Click += AoExportarJsonAsync;
         listaObjetos.SelectedIndexChanged += AoSelecionarObjeto;
+        seletorEventos.SelectedIndexChanged += AoSelecionarCodigoEventos;
+        seletorJson.SelectedIndexChanged += AoSelecionarCodigoJson;
         listaObjetos.SizeChanged += (_, _) => AjustarColunasObjetos();
         listaEventos.SizeChanged += (_, _) => AjustarColunasEventos();
         AjustarColunasEventos();
@@ -125,9 +127,9 @@ public partial class FormularioPrincipal : Form
             else if (codigoConsultaDiagnostico is not null)
                 await ExecutarConsultaDiagnosticoAsync();
         }
-        catch (TimeoutException excecao)
+        catch (Exception excecao)
         {
-            logger.LogError(excecao, "O navegador não ficou pronto dentro do prazo.");
+            logger.LogError(excecao, "Não foi possível preparar a aplicação para consulta.");
             DefinirStatus("Erro ao iniciar", Color.Firebrick);
             if (caminhoVerificacao is not null || caminhoTesteExtracao is not null || verificarCancelamento || codigoConsultaDiagnostico is not null)
             {
@@ -186,8 +188,8 @@ public partial class FormularioPrincipal : Form
             resultadoAtual = null;
             resultadoLoteAtual = null;
             listaObjetos.Items.Clear();
-            campoJson.Clear();
-            listaEventos.Items.Clear();
+            LimparJsonConsulta();
+            LimparEventosConsulta();
             contadorEventos.Text = "RESULTADO  ·  Consultando";
             var progressoConsulta = new Progress<string>(texto =>
             {
@@ -195,7 +197,6 @@ public partial class FormularioPrincipal : Form
                     DefinirStatus(texto, Color.FromArgb(0, 123, 174));
             });
             resultadoAtual = await consulta.ConsultarRastreamentoAsync(navegador, campoCodigo.Text, progressoConsulta, cancelamento.Token);
-            campoJson.Text = exportacao.Serializar(resultadoAtual);
             AdicionarObjeto(new ResultadoConsultaObjeto { CodigoInformado = campoCodigo.Text, Resultado = resultadoAtual });
             ApresentarEventos(resultadoAtual);
             abas.SelectedTab = abaEventos;
@@ -208,19 +209,21 @@ public partial class FormularioPrincipal : Form
             contadorEventos.Text = "RESULTADO  ·  Consulta cancelada";
             DefinirStatus("Cancelado", Color.SlateGray);
         }
-        catch (Exception excecao) when (excecao is IOException or TimeoutException or InvalidOperationException or JsonException or ArgumentException)
+        catch (Exception excecao)
         {
             logger.LogError(excecao, "Falha na consulta de rastreamento.");
             DefinirStatus("Falha na consulta", Color.Firebrick);
             contadorEventos.Text = "RESULTADO  ·  Sem resultado";
             if (!fechando)
-                MessageBox.Show(this, excecao is ConsultaRastreamentoException ? excecao.Message : "Não foi possível concluir a consulta. Confira a conexão e consulte os logs para os detalhes.",
+                MessageBox.Show(this, excecao is ConsultaRastreamentoException consultaExcecao ? consultaExcecao.MensagemUsuario : "Não foi possível concluir a consulta. Confira a conexão e consulte os logs para os detalhes.",
                     "Consulta não concluída", MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
         finally
         {
             operacaoAtual = null;
             DefinirProcessando(false);
+            AtualizarSeletorEventos();
+            AtualizarSeletorJson();
             if (fechando)
                 Close();
         }
@@ -255,10 +258,7 @@ public partial class FormularioPrincipal : Form
         DefinirProcessando(true, consulta: false);
         try
         {
-            if (resultadoLoteAtual is not null)
-                await exportacao.ExportarLoteJsonAsync(resultadoLoteAtual, dialogo.FileName, cancelamento.Token);
-            else
-                await exportacao.ExportarJsonAsync(resultadoAtual!, dialogo.FileName, cancelamento.Token);
+            await exportacao.ExportarTextoJsonAsync(ObterJsonAtual(), dialogo.FileName, cancelamento.Token);
             logger.LogInformation("Resultado exportado para {Arquivo}.", dialogo.FileName);
             DefinirStatus("JSON exportado", Color.SeaGreen);
         }
@@ -266,7 +266,7 @@ public partial class FormularioPrincipal : Form
         {
             logger.LogInformation("Exportação cancelada.");
         }
-        catch (Exception excecao) when (excecao is IOException or UnauthorizedAccessException or JsonException)
+        catch (Exception excecao)
         {
             logger.LogError(excecao, "Falha na exportação.");
             if (!fechando)
@@ -316,14 +316,20 @@ public partial class FormularioPrincipal : Form
         botaoCancelar.Enabled = !ociosa && consultaEmAndamento && !fechando;
         botaoCopiar.Enabled = ociosa && PossuiResultado;
         botaoExportar.Enabled = ociosa && PossuiResultado;
+        seletorJson.Enabled = ociosa && seletorJson.Items.Count > 1;
     }
 
     private void AtualizarMensagemEventos()
     {
         rotuloSemEventos.Visible = listaEventos.Items.Count == 0;
-        rotuloSemEventos.Text = consultaEmAndamento
-            ? "Aguardando eventos da consulta..."
-            : "Nenhum evento disponível. Inicie uma consulta ou selecione um objeto concluído.";
+        if (consultaEmAndamento)
+            rotuloSemEventos.Text = "Aguardando eventos da consulta...";
+        else if (resultadoAtual is not null)
+            rotuloSemEventos.Text = $"Nenhum evento disponível para {resultadoAtual.CodigoRastreamento}.";
+        else if (seletorEventos.SelectedItem is ResultadoConsultaObjeto objeto)
+            rotuloSemEventos.Text = objeto.Erro ?? $"Nenhum evento disponível para {objeto.CodigoInformado}.";
+        else
+            rotuloSemEventos.Text = "Nenhum evento disponível. Inicie uma consulta ou selecione um objeto concluído.";
         if (rotuloSemEventos.Visible)
             rotuloSemEventos.BringToFront();
     }
@@ -349,6 +355,8 @@ public partial class FormularioPrincipal : Form
             texto = "Abrindo portal dos Correios.";
         else if (texto.StartsWith("Documento principal carregado."))
             texto = "Portal carregado.";
+        else if (texto.StartsWith("O portal respondeu:"))
+            texto = "O portal não retornou um histórico para o objeto informado.";
         else if (texto.StartsWith("Resultado exportado para"))
             texto = "Resultado exportado em JSON.";
         if (mensagem.Texto.Contains("[Não foi possível gravar o log em disco.]") &&

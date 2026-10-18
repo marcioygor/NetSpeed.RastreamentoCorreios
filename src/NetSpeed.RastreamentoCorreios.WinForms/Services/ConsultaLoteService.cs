@@ -46,7 +46,7 @@ public sealed class ConsultaLoteService(ILogger<ConsultaLoteService> logger)
                     CodigoInformado = codigoInformado,
                     TipoErro = tipo,
                     Erro = tipo == "validacao" ? ValidadorCodigoRastreamento.MensagemFormatoInvalido
-                        : tipo == "portal" ? excecao.Message
+                        : excecao is ConsultaRastreamentoException consultaExcecao ? consultaExcecao.MensagemUsuario
                         : tipo == "timeout" ? "A consulta excedeu o tempo configurado."
                         : "Não foi possível concluir a consulta. Consulte os logs para os detalhes."
                 };

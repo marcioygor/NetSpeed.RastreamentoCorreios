@@ -39,61 +39,31 @@ public sealed class ConsultaRastreamentoService(ConfiguracaoAutomacao configurac
         var codigoNormalizado = ValidadorCodigoRastreamento.ValidarCodigo(codigo);
         logger.LogInformation("Iniciando consulta de {Codigo}.", codigoNormalizado);
         progresso.Report("Abrindo portal");
-        await navegacao.AbrirPortalAsync(navegador, cancellationToken);
-        if (!Uri.TryCreate(navegador.Address, UriKind.Absolute, out var endereco) || endereco.GetLeftPart(UriPartial.Authority) != configuracao.UrlPortal.GetLeftPart(UriPartial.Authority))
-            throw new ConsultaRastreamentoException("O portal redirecionou a navegação para outro endereço. A consulta foi interrompida.");
+        await AbrirPortalAsync(navegador, cancellationToken);
 
+        var scriptCaptura = RecursosAplicacao.LerTexto("Scripts.CapturarCaptcha.js");
+        var scriptPreenchimento = RecursosAplicacao.LerTexto("Scripts.PreencherConsulta.js");
+        var scriptEstado = RecursosAplicacao.LerTexto("Scripts.ObterEstadoConsulta.js");
         string? origemAnterior = null;
+
         for (var tentativa = 1; tentativa <= configuracao.MaximoTentativas; tentativa++)
         {
             cancellationToken.ThrowIfCancellationRequested();
             progresso.Report($"Lendo CAPTCHA · {tentativa}/{configuracao.MaximoTentativas}");
-            var scriptCaptura = RecursosAplicacao.LerTexto("Scripts.CapturarCaptcha.js")
-                .Replace("{{origemAnterior}}", JsonSerializer.Serialize(origemAnterior));
-            var imagem = await javascript.AguardarAsync<ImagemCaptcha>(navegador, scriptCaptura, cancellationToken);
-            if (diretorioDiagnostico is not null)
-                await File.WriteAllBytesAsync(Path.Combine(diretorioDiagnostico, $"captcha-{tentativa}.png"), Convert.FromBase64String(imagem.ConteudoBase64), cancellationToken);
-            logger.LogInformation("Tentativa {Tentativa}/{Limite} do CAPTCHA.", tentativa, configuracao.MaximoTentativas);
-            ResultadoOcrCaptcha? reconhecimento = null;
-            try
-            {
-                using var limiteOcr = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                limiteOcr.CancelAfter(TimeSpan.FromSeconds(configuracao.TimeoutOcrSegundos));
-                try
-                {
-                    reconhecimento = await processamentoCaptcha.ReconhecerAsync(Convert.FromBase64String(imagem.ConteudoBase64), limiteOcr.Token);
-                }
-                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-                {
-                    throw new TimeoutException("O processamento do CAPTCHA excedeu o tempo configurado.");
-                }
-                cancellationToken.ThrowIfCancellationRequested();
-                logger.LogInformation("OCR selecionou '{Texto}' por {Concordancias} concordâncias. Isso ainda depende da validação do portal.", reconhecimento.Texto, reconhecimento.Concordancias);
-            }
-            catch (FalhaReconhecimentoCaptchaException excecao)
-            {
-                logger.LogWarning(excecao, "A imagem não produziu uma sequência válida; nenhuma consulta foi enviada nesta tentativa.");
-            }
+            var (imagem, conteudo) = await CapturarCaptchaAsync(navegador, scriptCaptura, origemAnterior,
+                tentativa, diretorioDiagnostico, cancellationToken);
+            var reconhecimento = await ReconhecerCaptchaAsync(conteudo, tentativa, cancellationToken);
 
             if (reconhecimento is not null)
             {
                 progresso.Report("Consultando objeto");
-                var preencher = RecursosAplicacao.LerTexto("Scripts.PreencherConsulta.js")
-                    .Replace("{{origemImagem}}", JsonSerializer.Serialize(imagem.Origem))
-                    .Replace("{{codigo}}", JsonSerializer.Serialize(codigoNormalizado))
-                    .Replace("{{captcha}}", JsonSerializer.Serialize(reconhecimento.Texto));
-                await javascript.ExecutarAsync<bool>(navegador, preencher, cancellationToken);
-                var estado = await javascript.AguardarAsync<EstadoConsultaPagina>(navegador,
-                    RecursosAplicacao.LerTexto("Scripts.ObterEstadoConsulta.js"), cancellationToken);
+                var estado = await EnviarConsultaAsync(navegador, codigoNormalizado, imagem.Origem, reconhecimento.Texto,
+                    scriptPreenchimento, scriptEstado, cancellationToken);
                 if (estado.Estado == "eventos")
                 {
                     logger.LogInformation("CAPTCHA aceito pelo portal na tentativa {Tentativa}.", tentativa);
                     progresso.Report("Extraindo histórico");
-                    cancellationToken.ThrowIfCancellationRequested();
-                    var eventos = await extracao.ExtrairEventosAsync(navegador, cancellationToken);
-                    cancellationToken.ThrowIfCancellationRequested();
-                    logger.LogInformation("Consulta de {Codigo} concluída: {Quantidade} eventos extraídos.", codigoNormalizado, eventos.Count);
-                    return new ResultadoRastreamento { CodigoRastreamento = codigoNormalizado, Eventos = eventos };
+                    return await ExtrairResultadoAsync(navegador, codigoNormalizado, cancellationToken);
                 }
                 if (estado.Estado != "captcha-invalido")
                 {
@@ -102,18 +72,99 @@ public sealed class ConsultaRastreamentoService(ConfiguracaoAutomacao configurac
                 }
                 logger.LogWarning("CAPTCHA rejeitado pelo portal na tentativa {Tentativa}.", tentativa);
             }
+
+            cancellationToken.ThrowIfCancellationRequested();
             if (tentativa < configuracao.MaximoTentativas)
             {
                 origemAnterior = imagem.Origem;
-                await RenovarImagemAsync(navegador, imagem.Origem, cancellationToken);
-                await Task.Delay(configuracao.IntervaloTentativasMilissegundos, cancellationToken);
+                await PrepararProximaTentativaAsync(navegador, imagem.Origem, cancellationToken);
             }
         }
         throw new ConsultaRastreamentoException($"Não foi possível validar o CAPTCHA após {configuracao.MaximoTentativas} tentativas. Tente uma nova consulta.");
     }
 
-    private async Task RenovarImagemAsync(ChromiumWebBrowser navegador, string origem, CancellationToken cancellationToken)
+    private async Task AbrirPortalAsync(ChromiumWebBrowser navegador, CancellationToken cancellationToken)
     {
+        await navegacao.AbrirPortalAsync(navegador, cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
+        ValidarEnderecoPortal(navegador);
+    }
+
+    private void ValidarEnderecoPortal(ChromiumWebBrowser navegador)
+    {
+        if (!Uri.TryCreate(navegador.Address, UriKind.Absolute, out var endereco) ||
+            !string.IsNullOrEmpty(endereco.UserInfo) ||
+            endereco.GetLeftPart(UriPartial.Authority) != configuracao.UrlPortal.GetLeftPart(UriPartial.Authority) ||
+            !string.Equals(endereco.AbsolutePath, configuracao.UrlPortal.AbsolutePath, StringComparison.Ordinal))
+            throw new ConsultaRastreamentoException("O portal redirecionou a navegação para outro endereço. A consulta foi interrompida.");
+    }
+
+    private async Task<(ImagemCaptcha Imagem, byte[] Conteudo)> CapturarCaptchaAsync(ChromiumWebBrowser navegador,
+        string scriptCaptura, string? origemAnterior, int tentativa, string? diretorioDiagnostico, CancellationToken cancellationToken)
+    {
+        ValidarEnderecoPortal(navegador);
+        var script = scriptCaptura.Replace("{{origemAnterior}}", JsonSerializer.Serialize(origemAnterior));
+        var imagem = await javascript.AguardarAsync<ImagemCaptcha>(navegador, script, cancellationToken);
+        var conteudo = Convert.FromBase64String(imagem.ConteudoBase64);
+        if (diretorioDiagnostico is not null)
+            await File.WriteAllBytesAsync(Path.Combine(diretorioDiagnostico, $"captcha-{tentativa}.png"), conteudo, cancellationToken);
+        logger.LogInformation("Tentativa {Tentativa}/{Limite} do CAPTCHA.", tentativa, configuracao.MaximoTentativas);
+        return (imagem, conteudo);
+    }
+
+    private async Task<ResultadoOcrCaptcha?> ReconhecerCaptchaAsync(byte[] conteudo, int tentativa, CancellationToken cancellationToken)
+    {
+        using var limiteOcr = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        limiteOcr.CancelAfter(TimeSpan.FromSeconds(configuracao.TimeoutOcrSegundos));
+        try
+        {
+            var reconhecimento = await processamentoCaptcha.ReconhecerAsync(conteudo, limiteOcr.Token);
+            cancellationToken.ThrowIfCancellationRequested();
+            limiteOcr.Token.ThrowIfCancellationRequested();
+            logger.LogInformation("OCR selecionou '{Texto}' por {Concordancias} concordâncias. Isso ainda depende da validação do portal.", reconhecimento.Texto, reconhecimento.Concordancias);
+            return reconhecimento;
+        }
+        catch (OperationCanceledException excecao) when (limiteOcr.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            logger.LogWarning(excecao, "O processamento do CAPTCHA excedeu o tempo configurado na tentativa {Tentativa}/{Limite}; nenhuma consulta foi enviada nesta tentativa.",
+                tentativa, configuracao.MaximoTentativas);
+        }
+        catch (FalhaReconhecimentoCaptchaException excecao)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            logger.LogWarning(excecao, "A imagem não produziu uma sequência válida; nenhuma consulta foi enviada nesta tentativa.");
+        }
+        return null;
+    }
+
+    private async Task<EstadoConsultaPagina> EnviarConsultaAsync(ChromiumWebBrowser navegador, string codigo,
+        string origemImagem, string captcha, string scriptPreenchimento, string scriptEstado, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        ValidarEnderecoPortal(navegador);
+        var script = scriptPreenchimento.Replace("{{origemImagem}}", JsonSerializer.Serialize(origemImagem))
+            .Replace("{{codigo}}", JsonSerializer.Serialize(codigo))
+            .Replace("{{captcha}}", JsonSerializer.Serialize(captcha));
+        if (!await javascript.ExecutarAsync<bool>(navegador, script, cancellationToken))
+            throw new InvalidOperationException("O script não confirmou o envio da consulta ao portal.");
+        return await javascript.AguardarAsync<EstadoConsultaPagina>(navegador, scriptEstado, cancellationToken);
+    }
+
+    private async Task<ResultadoRastreamento> ExtrairResultadoAsync(ChromiumWebBrowser navegador, string codigo, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        ValidarEnderecoPortal(navegador);
+        var eventos = await extracao.ExtrairEventosAsync(navegador, cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
+        logger.LogInformation("Consulta de {Codigo} concluída: {Quantidade} eventos extraídos.", codigo, eventos.Count);
+        return new ResultadoRastreamento { CodigoRastreamento = codigo, Eventos = eventos };
+    }
+
+    private async Task PrepararProximaTentativaAsync(ChromiumWebBrowser navegador, string origem, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        ValidarEnderecoPortal(navegador);
         var script = """
             (() => {
                 const imagem = document.querySelector('#captcha_image');
@@ -123,6 +174,8 @@ public sealed class ConsultaRastreamentoService(ConfiguracaoAutomacao configurac
                 return JSON.stringify(true);
             })()
             """.Replace("{{origem}}", JsonSerializer.Serialize(origem));
-        await javascript.ExecutarAsync<bool>(navegador, script, cancellationToken);
+        if (!await javascript.ExecutarAsync<bool>(navegador, script, cancellationToken))
+            throw new InvalidOperationException("O script não confirmou a renovação do CAPTCHA.");
+        await Task.Delay(configuracao.IntervaloTentativasMilissegundos, cancellationToken);
     }
 }

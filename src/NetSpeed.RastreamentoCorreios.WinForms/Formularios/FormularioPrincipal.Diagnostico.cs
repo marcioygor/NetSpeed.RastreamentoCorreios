@@ -30,7 +30,7 @@ public partial class FormularioPrincipal
             {
                 await File.WriteAllTextAsync(Path.Combine(diretorio, "falha.json"), JsonSerializer.Serialize(new
                 {
-                    tipo = excecao.GetType().Name, mensagem = excecao.Message
+                    mensagem = "Não foi possível concluir a consulta de diagnóstico. Consulte os logs da aplicação."
                 }, new JsonSerializerOptions { WriteIndented = true }));
             }
             catch (Exception falha) when (falha is IOException or UnauthorizedAccessException)
@@ -112,7 +112,7 @@ public partial class FormularioPrincipal
                 interfaceRespondeu = batimentos >= 4,
                 botaoCancelou = botaoAcionado && cancelamento.IsCancellationRequested,
                 batimentos,
-                erro = excecao.Message
+                erro = "Não foi possível concluir a verificação. Consulte os logs da aplicação."
             }, new JsonSerializerOptions { WriteIndented = true }));
         }
         finally
@@ -136,7 +136,7 @@ public partial class FormularioPrincipal
             Environment.ExitCode = 1;
             logger.LogError(excecao, "Falha no teste local de extração.");
             var arquivo = Path.Combine(AppContext.BaseDirectory, "extracao-" + Path.GetFileNameWithoutExtension(caminhoTesteExtracao) + ".falha.json");
-            await File.WriteAllTextAsync(arquivo, JsonSerializer.Serialize(new { erro = excecao.Message }));
+            await File.WriteAllTextAsync(arquivo, JsonSerializer.Serialize(new { erro = "Não foi possível concluir a verificação. Consulte os logs da aplicação." }));
         }
         finally
         {

@@ -42,9 +42,9 @@ public sealed class JavascriptCorreiosService(ConfiguracaoAutomacao configuracao
                 await Task.Delay(configuracao.IntervaloVerificacaoMilissegundos, limite.Token);
             }
         }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException excecao) when (!cancellationToken.IsCancellationRequested)
         {
-            throw new TimeoutException("O portal não apresentou o estado esperado dentro do prazo configurado.");
+            throw new TimeoutException("O portal não apresentou o estado esperado dentro do prazo configurado.", excecao);
         }
     }
 }

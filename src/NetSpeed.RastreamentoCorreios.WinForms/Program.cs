@@ -89,10 +89,10 @@ internal static class Program
             registro.CreateLogger(nameof(Program)).LogCritical(excecao, "Falha ao iniciar a aplicação.");
             if (args.Length > 0 && args[0].StartsWith("--", StringComparison.Ordinal))
             {
-                Console.Error.WriteLine(excecao);
+                Console.Error.WriteLine("Não foi possível concluir a execução. Consulte os logs da aplicação.");
                 return 1;
             }
-            MessageBox.Show("Não foi possível iniciar a aplicação.\n\n" + excecao.Message + "\n\nLogs: " + Path.Combine(diretorioDados, "logs"),
+            MessageBox.Show("Não foi possível iniciar a aplicação. Tente novamente e, se o problema persistir, consulte os logs.\n\nLogs: " + Path.Combine(diretorioDados, "logs"),
                 "Falha na inicialização", MessageBoxButtons.OK, MessageBoxIcon.Error);
             return 1;
         }

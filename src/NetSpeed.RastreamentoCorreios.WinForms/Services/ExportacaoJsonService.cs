@@ -22,6 +22,9 @@ public sealed class ExportacaoJsonService
     public Task ExportarLoteJsonAsync(IReadOnlyList<ResultadoConsultaObjeto> resultados, string caminho, CancellationToken cancellationToken)
         => SalvarAsync(SerializarLote(resultados), caminho, cancellationToken);
 
+    public Task ExportarTextoJsonAsync(string json, string caminho, CancellationToken cancellationToken)
+        => SalvarAsync(json, caminho, cancellationToken);
+
     private static async Task SalvarAsync(string json, string caminho, CancellationToken cancellationToken)
     {
         var caminhoAbsoluto = Path.GetFullPath(caminho);

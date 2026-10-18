@@ -1,4 +1,6 @@
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using NetSpeed.RastreamentoCorreios.Infraestrutura;
 using NetSpeed.RastreamentoCorreios.Excecoes;
 using NetSpeed.RastreamentoCorreios.Modelos;
 using NetSpeed.RastreamentoCorreios.Services;
@@ -72,6 +74,34 @@ public sealed class ConsultaLoteServiceTests
         {
             Assert.Equal("automacao", item.TipoErro);
             Assert.DoesNotContain("Detalhe interno", item.Erro);
+        }
+    }
+
+    [Fact]
+    public async Task FalhaTecnicaMantemContextoNoLogEMensagemAmigavelNoResultado()
+    {
+        var diretorio = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        try
+        {
+            using var registro = new RegistroExecucaoProvider(diretorio);
+            using var fabrica = LoggerFactory.Create(logging => logging.AddProvider(registro));
+            var servico = new ConsultaLoteService(fabrica.CreateLogger<ConsultaLoteService>());
+            await foreach (var item in servico.ConsultarAsync(["AA123456789BR"], (_, _) =>
+                throw new InvalidOperationException("Stack técnico reservado", new IOException("Causa interna")), CancellationToken.None))
+            {
+                Assert.Equal("automacao", item.TipoErro);
+                Assert.Equal("Não foi possível concluir a consulta. Consulte os logs para os detalhes.", item.Erro);
+            }
+            var log = File.ReadAllText(Assert.Single(Directory.GetFiles(diretorio, "*.log")));
+            Assert.Contains("Stack técnico reservado", log);
+            Assert.Contains("Causa interna", log);
+            Assert.Contains(nameof(FalhaTecnicaMantemContextoNoLogEMensagemAmigavelNoResultado), log);
+            Assert.Contains("AA123456789BR", log);
+            Assert.All(registro.ObterHistorico(), mensagem => Assert.DoesNotContain("reservado", mensagem.Texto));
+        }
+        finally
+        {
+            Directory.Delete(diretorio, true);
         }
     }
 }

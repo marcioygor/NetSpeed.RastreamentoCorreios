@@ -15,8 +15,8 @@ public partial class FormularioPrincipal
         resultadoAtual = null;
         resultadoLoteAtual = [];
         listaObjetos.Items.Clear();
-        listaEventos.Items.Clear();
-        campoJson.Clear();
+        LimparEventosConsulta();
+        LimparJsonConsulta();
         contadorEventos.Text = "RESULTADO  ·  Consultando lote";
         abas.SelectedTab = abaObjetos;
         DefinirProcessando(true);
@@ -44,16 +44,25 @@ public partial class FormularioPrincipal
             DefinirStatus("Lote cancelado", Color.SlateGray);
             logger.LogInformation("Lote cancelado; {Quantidade} resultados anteriores preservados.", resultadoLoteAtual.Count);
         }
+        catch (Exception excecao)
+        {
+            logger.LogError(excecao, "Falha ao consultar o lote; {Quantidade} resultados anteriores preservados.", resultadoLoteAtual.Count);
+            DefinirStatus("Falha na consulta do lote", Color.Firebrick);
+            if (!fechando)
+                MessageBox.Show(this, "Não foi possível concluir o lote. Os resultados já obtidos foram preservados. Tente novamente mais tarde.",
+                    "Lote não concluído", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
         finally
         {
             operacaoAtual = null;
             if (resultadoLoteAtual.Count > 0)
             {
-                campoJson.Text = exportacao.SerializarLote(resultadoLoteAtual);
                 logger.LogInformation("JSON de lote gerado com {Quantidade} resultados independentes.", resultadoLoteAtual.Count);
             }
             contadorEventos.Text = $"RESULTADO  ·  {resultadoLoteAtual.Count}/{codigos.Count} objetos tratados";
             DefinirProcessando(false);
+            AtualizarSeletorEventos();
+            AtualizarSeletorJson();
             if (fechando)
                 Close();
         }
@@ -85,6 +94,17 @@ public partial class FormularioPrincipal
     {
         if (listaObjetos.SelectedItems.Count == 0 || listaObjetos.SelectedItems[0].Tag is not ResultadoConsultaObjeto item)
             return;
+        var indice = seletorEventos.Items.IndexOf(item);
+        if (indice >= 0 && seletorEventos.SelectedIndex != indice)
+        {
+            seletorEventos.SelectedIndex = indice;
+            return;
+        }
+        ApresentarObjetoSelecionado(item);
+    }
+
+    private void ApresentarObjetoSelecionado(ResultadoConsultaObjeto item)
+    {
         if (item.Resultado is not null)
             ApresentarEventos(item.Resultado);
         else
@@ -96,8 +116,98 @@ public partial class FormularioPrincipal
         }
     }
 
-    private string ObterJsonAtual() => resultadoLoteAtual is not null
-        ? exportacao.SerializarLote(resultadoLoteAtual) : exportacao.Serializar(resultadoAtual!);
+    private void LimparEventosConsulta()
+    {
+        seletorEventos.Items.Clear();
+        seletorEventos.Enabled = false;
+        listaEventos.Items.Clear();
+        AtualizarMensagemEventos();
+    }
+
+    private void AtualizarSeletorEventos()
+    {
+        seletorEventos.BeginUpdate();
+        try
+        {
+            seletorEventos.Items.Clear();
+            if (resultadoLoteAtual is not null)
+                seletorEventos.Items.AddRange(resultadoLoteAtual.ToArray());
+            else if (resultadoAtual is not null)
+                seletorEventos.Items.Add(new ResultadoConsultaObjeto
+                {
+                    CodigoInformado = resultadoAtual.CodigoRastreamento,
+                    Resultado = resultadoAtual
+                });
+            seletorEventos.Enabled = operacaoAtual is null && seletorEventos.Items.Count > 1;
+            if (seletorEventos.Items.Count > 0)
+                seletorEventos.SelectedIndex = 0;
+        }
+        finally
+        {
+            seletorEventos.EndUpdate();
+        }
+    }
+
+    private void AoSelecionarCodigoEventos(object? sender, EventArgs e)
+    {
+        if (seletorEventos.SelectedItem is ResultadoConsultaObjeto item)
+            ApresentarObjetoSelecionado(item);
+    }
+
+    private void LimparJsonConsulta()
+    {
+        seletorJson.Items.Clear();
+        seletorJson.Enabled = false;
+        campoJson.Clear();
+    }
+
+    private void AtualizarSeletorJson()
+    {
+        seletorJson.BeginUpdate();
+        try
+        {
+            LimparJsonConsulta();
+            if (resultadoLoteAtual is { Count: > 0 })
+            {
+                seletorJson.Items.Add("Todos os objetos (lote completo)");
+                seletorJson.Items.AddRange(resultadoLoteAtual.ToArray());
+            }
+            else if (resultadoLoteAtual is null && resultadoAtual is not null)
+            {
+                seletorJson.Items.Add("Todos os objetos (lote completo)");
+                seletorJson.Items.Add(new ResultadoConsultaObjeto
+                {
+                    CodigoInformado = resultadoAtual.CodigoRastreamento,
+                    Resultado = resultadoAtual
+                });
+            }
+            if (seletorJson.Items.Count > 0)
+                seletorJson.SelectedIndex = 0;
+            AtualizarBotoes();
+        }
+        finally
+        {
+            seletorJson.EndUpdate();
+        }
+    }
+
+    private void AoSelecionarCodigoJson(object? sender, EventArgs e)
+    {
+        if (seletorJson.SelectedItem is ResultadoConsultaObjeto item)
+        {
+            campoJson.Text = item.Resultado is not null
+                ? exportacao.Serializar(item.Resultado)
+                : exportacao.SerializarLote([item]);
+        }
+        else if (seletorJson.SelectedIndex == 0 && resultadoLoteAtual is { Count: > 0 })
+            campoJson.Text = exportacao.SerializarLote(resultadoLoteAtual);
+        else if (seletorJson.SelectedIndex == 0 && resultadoAtual is not null)
+            campoJson.Text = exportacao.Serializar(resultadoAtual);
+        else
+            campoJson.Clear();
+    }
+
+    private string ObterJsonAtual() => campoJson.Text;
 
     private void AjustarColunasObjetos()
     {

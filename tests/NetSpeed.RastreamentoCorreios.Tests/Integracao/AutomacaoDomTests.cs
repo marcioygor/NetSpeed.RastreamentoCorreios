@@ -1,4 +1,6 @@
 using System.Net;
+using NetSpeed.RastreamentoCorreios.Excecoes;
+using NetSpeed.RastreamentoCorreios.Interfaces;
 using System.Net.Sockets;
 using System.Text.Json;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -205,4 +207,293 @@ public sealed class AutomacaoDomTests(NavegadorIntegracao ambiente) : IClassFixt
         await Assert.ThrowsAsync<InvalidDataException>(() => CriarJavascript().ExecutarAsync<bool>(navegador, "(() => true)()", CancellationToken.None));
         await Assert.ThrowsAsync<JsonException>(() => CriarJavascript().ExecutarAsync<EstadoConsultaPagina>(navegador, "(() => 'conteúdo sem JSON')()", CancellationToken.None));
     });
+
+    [Theory]
+    [InlineData("sucesso", 1, 1)]
+    [InlineData("captcha-invalido", 2, 2)]
+    [InlineData("ocr-invalido", 2, 1)]
+    [InlineData("timeout", 2, 1)]
+    [InlineData("ocr-atrasado", 2, 1)]
+    public Task ConsultaCompletaRecuperaFalhasTemporarias(string cenario, int leiturasEsperadas, int enviosEsperados) => ambiente.ExecutarAsync(async navegador =>
+        await ComPortalLocalAsync(cenario, async endereco =>
+        {
+            var leituras = 0;
+            var ocr = new ProcessamentoCaptchaTeste(async (imagem, token) =>
+            {
+                Assert.NotEmpty(imagem);
+                leituras++;
+                if (leituras == 1 && cenario == "ocr-invalido")
+                    throw new FalhaReconhecimentoCaptchaException("Imagem de teste ilegível");
+                if (leituras == 1 && cenario == "timeout")
+                    await Task.Delay(Timeout.Infinite, token);
+                if (leituras == 1 && cenario == "ocr-atrasado")
+                    await Task.Delay(1100);
+                return new ResultadoOcrCaptcha("abcd", 0.9f, "teste", 1);
+            });
+            var resultado = await CriarConsultaLocal(endereco, ocr, 3).ConsultarRastreamentoAsync(navegador,
+                "aa123456789br", new Progress<string>(), CancellationToken.None);
+            Assert.Equal("AA123456789BR", resultado.CodigoRastreamento);
+            Assert.Equal("Evento de teste", Assert.Single(resultado.Eventos).Situacao);
+            Assert.Equal(leiturasEsperadas, leituras);
+            Assert.Equal(enviosEsperados, await CriarJavascript().ExecutarAsync<int>(navegador,
+                "(() => JSON.stringify(window.envios))()", CancellationToken.None));
+        }));
+
+    [Theory]
+    [InlineData("captcha-esgotado")]
+    [InlineData("ocr-invalido")]
+    [InlineData("timeout")]
+    public Task ConsultaRespeitaLimiteDeTentativas(string cenario) => ambiente.ExecutarAsync(async navegador =>
+        await ComPortalLocalAsync(cenario, async endereco =>
+        {
+            var leituras = 0;
+            var ocr = new ProcessamentoCaptchaTeste(async (_, token) =>
+            {
+                leituras++;
+                if (cenario == "ocr-invalido")
+                    throw new FalhaReconhecimentoCaptchaException("Imagem de teste ilegível");
+                if (cenario == "timeout")
+                    await Task.Delay(Timeout.Infinite, token);
+                return new ResultadoOcrCaptcha("abcd", 0.9f, "teste", 1);
+            });
+            var erro = await Assert.ThrowsAsync<ConsultaRastreamentoException>(() => CriarConsultaLocal(endereco, ocr, 2)
+                .ConsultarRastreamentoAsync(navegador, "AA123456789BR", new Progress<string>(), CancellationToken.None));
+            Assert.Contains("após 2 tentativas", erro.MensagemUsuario);
+            Assert.Equal(2, leituras);
+            Assert.Equal(cenario == "captcha-esgotado" ? 2 : 0, await CriarJavascript().ExecutarAsync<int>(navegador,
+                "(() => JSON.stringify(window.envios))()", CancellationToken.None));
+        }));
+
+    [Theory]
+    [InlineData("ocr")]
+    [InlineData("renovacao")]
+    public Task CancelamentoDoUsuarioImpedeNovasTentativasEEnvios(string etapa) => ambiente.ExecutarAsync(async navegador =>
+        await ComPortalLocalAsync("sucesso", async endereco =>
+        {
+            using var cancelamento = new CancellationTokenSource();
+            var leituras = 0;
+            var ocr = new ProcessamentoCaptchaTeste(async (_, token) =>
+            {
+                leituras++;
+                if (etapa == "ocr")
+                {
+                    cancelamento.CancelAfter(100);
+                    await Task.Delay(Timeout.Infinite, token);
+                }
+                cancelamento.CancelAfter(50);
+                throw new FalhaReconhecimentoCaptchaException("Imagem de teste ilegível");
+            });
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => CriarConsultaLocal(endereco, ocr, 3)
+                .ConsultarRastreamentoAsync(navegador, "AA123456789BR", new Progress<string>(), cancelamento.Token));
+            Assert.Equal(1, leituras);
+            Assert.Equal(0, await CriarJavascript().ExecutarAsync<int>(navegador,
+                "(() => JSON.stringify(window.envios))()", CancellationToken.None));
+        }));
+
+    [Theory]
+    [InlineData("falha-envio")]
+    [InlineData("falha-renovacao")]
+    public Task RespostaFalsaDoScriptInterrompeAConsulta(string cenario) => ambiente.ExecutarAsync(async navegador =>
+        await ComPortalLocalAsync(cenario, async endereco =>
+        {
+            var leituras = 0;
+            var ocr = new ProcessamentoCaptchaTeste((_, _) =>
+            {
+                leituras++;
+                if (cenario == "falha-renovacao")
+                    throw new FalhaReconhecimentoCaptchaException("Imagem de teste ilegível");
+                return Task.FromResult(new ResultadoOcrCaptcha("abcd", 0.9f, "teste", 1));
+            });
+            var erro = await Assert.ThrowsAsync<InvalidOperationException>(() => CriarConsultaLocal(endereco, ocr, 3)
+                .ConsultarRastreamentoAsync(navegador, "AA123456789BR", new Progress<string>(), CancellationToken.None));
+            Assert.Contains("O script não confirmou", erro.Message);
+            Assert.Equal(1, leituras);
+        }));
+
+    [Fact]
+    public Task RedirecionamentoParaOutroCaminhoImpedeReconhecimento() => ambiente.ExecutarAsync(async navegador =>
+        await ComPortalLocalAsync("redirecionamento", async endereco =>
+        {
+            var leituras = 0;
+            var ocr = new ProcessamentoCaptchaTeste((_, _) =>
+            {
+                leituras++;
+                return Task.FromResult(new ResultadoOcrCaptcha("abcd", 0.9f, "teste", 1));
+            });
+            var erro = await Assert.ThrowsAsync<ConsultaRastreamentoException>(() => CriarConsultaLocal(endereco, ocr, 3)
+                .ConsultarRastreamentoAsync(navegador, "AA123456789BR", new Progress<string>(), CancellationToken.None));
+            Assert.Contains("outro endereço", erro.MensagemUsuario);
+            Assert.Equal(0, leituras);
+        }));
+
+    [Fact]
+    public Task FalhaFatalDoMotorNaoEhRepetida() => ambiente.ExecutarAsync(async navegador =>
+        await ComPortalLocalAsync("sucesso", async endereco =>
+        {
+            var leituras = 0;
+            var ocr = new ProcessamentoCaptchaTeste((_, _) =>
+            {
+                leituras++;
+                throw new InvalidOperationException("Falha do motor de teste");
+            });
+            await Assert.ThrowsAsync<InvalidOperationException>(() => CriarConsultaLocal(endereco, ocr, 3)
+                .ConsultarRastreamentoAsync(navegador, "AA123456789BR", new Progress<string>(), CancellationToken.None));
+            Assert.Equal(1, leituras);
+        }));
+
+    private static ConsultaRastreamentoService CriarConsultaLocal(Uri endereco, IProcessamentoCaptchaService ocr, int tentativas)
+    {
+        var configuracao = new ConfiguracaoAutomacao
+        {
+            UrlPortal = endereco,
+            TimeoutNavegacaoSegundos = 5,
+            TimeoutElementoSegundos = 3,
+            TimeoutOcrSegundos = 1,
+            IntervaloVerificacaoMilissegundos = 50,
+            IntervaloTentativasMilissegundos = 100,
+            MaximoTentativas = tentativas
+        };
+        var javascript = new JavascriptCorreiosService(configuracao);
+        return new(configuracao, new NavegacaoCorreiosService(configuracao, NullLogger<NavegacaoCorreiosService>.Instance),
+            javascript, ocr, new ExtracaoEventosService(javascript), NullLogger<ConsultaRastreamentoService>.Instance);
+    }
+
+    private static async Task ComPortalLocalAsync(string cenario, Func<Uri, Task> verificar)
+    {
+        var imagens = Enumerable.Range(0, 4).Select(indice =>
+        {
+            using var bitmap = new Bitmap(2, 2);
+            bitmap.SetPixel(0, 0, Color.FromArgb(indice * 60, 0, 0));
+            using var fluxo = new MemoryStream();
+            bitmap.Save(fluxo, System.Drawing.Imaging.ImageFormat.Png);
+            return "data:image/png;base64," + Convert.ToBase64String(fluxo.ToArray());
+        }).ToArray();
+        var html = $$"""
+            <html><body>
+            <input id="objeto"><input id="captcha"><img id="captcha_image" src="{{imagens[0]}}">
+            <button id="b-pesquisar" type="button">Consultar</button><button id="captcha_refresh_btn" type="button">Renovar</button>
+            <div id="alerta"><span class="msg"></span></div><div id="ver-rastro-unico"><ul class="ship-steps"></ul></div>
+            <script>
+            const imagens = {{JsonSerializer.Serialize(imagens)}};
+            const cenario = {{JsonSerializer.Serialize(cenario)}};
+            let indice = 0; window.envios = 0;
+            function retornarFalso() {
+                const serializar = JSON.stringify;
+                JSON.stringify = valor => typeof valor === 'boolean' ? 'false' : serializar(valor);
+            }
+            document.getElementById('captcha_refresh_btn').onclick = () => {
+                document.getElementById('captcha_image').src = imagens[++indice];
+                document.getElementById('alerta').className = '';
+                if (cenario === 'falha-renovacao') retornarFalso();
+            };
+            document.getElementById('b-pesquisar').onclick = () => {
+                window.envios++;
+                if (cenario === 'falha-envio') { retornarFalso(); return; }
+                if (cenario === 'objeto-nao-encontrado') {
+                    document.getElementById('alerta').className = 'aberto';
+                    document.querySelector('#alerta .msg').textContent = 'Objeto não encontrado';
+                } else if (cenario === 'captcha-esgotado' || (cenario === 'captcha-invalido' && window.envios === 1)) {
+                    document.getElementById('alerta').className = 'aberto';
+                    document.querySelector('#alerta .msg').textContent = 'CAPTCHA inválido';
+                } else {
+                    document.querySelector('.ship-steps').innerHTML = "<li class='step'><div class='step-content'><p class='text-head'>Evento de teste</p></div></li>";
+                }
+            };
+            </script></body></html>
+            """;
+        var conteudo = System.Text.Encoding.UTF8.GetBytes(html);
+        var servidor = new TcpListener(IPAddress.Loopback, 0);
+        servidor.Start();
+        var porta = ((IPEndPoint)servidor.LocalEndpoint).Port;
+        using var cancelamento = new CancellationTokenSource();
+        async Task ResponderAsync(TcpClient cliente)
+        {
+            using (cliente)
+            try
+            {
+                await using var fluxo = cliente.GetStream();
+                using var leitor = new StreamReader(fluxo, leaveOpen: true);
+                var pedido = await leitor.ReadLineAsync(cancelamento.Token);
+                while (!string.IsNullOrEmpty(await leitor.ReadLineAsync(cancelamento.Token))) { }
+                var redirecionar = cenario == "redirecionamento" && pedido?.Contains(" /app/index.php ") == true;
+                var cabecalho = redirecionar
+                    ? "HTTP/1.1 302 Found\r\nLocation: /outra-pagina\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                    : $"HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {conteudo.Length}\r\nConnection: close\r\n\r\n";
+                await fluxo.WriteAsync(System.Text.Encoding.ASCII.GetBytes(cabecalho), cancelamento.Token);
+                if (!redirecionar)
+                    await fluxo.WriteAsync(conteudo, cancelamento.Token);
+            }
+            catch (OperationCanceledException) when (cancelamento.IsCancellationRequested) { }
+            catch (IOException) when (cancelamento.IsCancellationRequested) { }
+        }
+        var atendimento = Task.Run(async () =>
+        {
+            var respostas = new List<Task>();
+            try
+            {
+                while (!cancelamento.IsCancellationRequested)
+                {
+                    var cliente = await servidor.AcceptTcpClientAsync(cancelamento.Token);
+                    respostas.Add(ResponderAsync(cliente));
+                }
+            }
+            catch (OperationCanceledException) when (cancelamento.IsCancellationRequested) { }
+            catch (SocketException) when (cancelamento.IsCancellationRequested) { }
+            finally
+            {
+                await Task.WhenAll(respostas);
+            }
+        });
+        try
+        {
+            await verificar(new Uri($"http://127.0.0.1:{porta}/app/index.php"));
+        }
+        finally
+        {
+            cancelamento.Cancel();
+            servidor.Stop();
+            await atendimento;
+        }
+    }
+
+
+    [Fact]
+    public Task ConsultaPreservaMensagemDeNegocioSemRepetirOCR() => ambiente.ExecutarAsync(async navegador =>
+        await ComPortalLocalAsync("objeto-nao-encontrado", async endereco =>
+        {
+            var leituras = 0;
+            var ocr = new ProcessamentoCaptchaTeste((_, _) =>
+            {
+                leituras++;
+                return Task.FromResult(new ResultadoOcrCaptcha("abcd", 0.9f, "teste", 1));
+            });
+            var erro = await Assert.ThrowsAsync<ConsultaRastreamentoException>(() => CriarConsultaLocal(endereco, ocr, 3)
+                .ConsultarRastreamentoAsync(navegador, "AA123456789BR", new Progress<string>(), CancellationToken.None));
+            Assert.Equal("Objeto não encontrado", erro.MensagemUsuario);
+            Assert.Equal(1, leituras);
+        }));
+
+    [Fact]
+    public Task DiagnosticoGravaOsMesmosBytesEnviadosAoOCR() => ambiente.ExecutarAsync(async navegador =>
+        await ComPortalLocalAsync("sucesso", async endereco =>
+        {
+            var diretorio = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(diretorio);
+            try
+            {
+                var ocr = new ProcessamentoCaptchaTeste((imagem, _) =>
+                {
+                    Assert.Equal(imagem, File.ReadAllBytes(Path.Combine(diretorio, "captcha-1.png")));
+                    return Task.FromResult(new ResultadoOcrCaptcha("abcd", 0.9f, "teste", 1));
+                });
+                await CriarConsultaLocal(endereco, ocr, 3).ConsultarRastreamentoAsync(navegador,
+                    "AA123456789BR", new Progress<string>(), CancellationToken.None, diretorio);
+                Assert.Single(Directory.GetFiles(diretorio));
+            }
+            finally
+            {
+                Directory.Delete(diretorio, true);
+            }
+        }));
+
 }

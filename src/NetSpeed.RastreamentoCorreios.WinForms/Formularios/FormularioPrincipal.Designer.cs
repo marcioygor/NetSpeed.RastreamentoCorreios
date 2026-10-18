@@ -14,7 +14,12 @@ partial class FormularioPrincipal
     private TableLayoutPanel areaResultado = null!;
     private TabControl abas = null!;
     private TabPage abaEventos = null!;
+    private ComboBox seletorEventos = null!;
+    private TableLayoutPanel areaEventos = null!;
+    private Panel painelEventos = null!;
     private TabPage abaJson = null!;
+    private ComboBox seletorJson = null!;
+    private TableLayoutPanel areaJson = null!;
     private TabPage abaObjetos = null!;
     private ListView listaObjetos = null!;
     private FlowLayoutPanel acoesResultado = null!;
@@ -82,9 +87,14 @@ partial class FormularioPrincipal
         contadorEventos = new Label();
         abas = new TabControl();
         abaEventos = new TabPage();
+        seletorEventos = new ComboBox();
+        areaEventos = new TableLayoutPanel();
+        painelEventos = new Panel();
         listaEventos = new ListView();
         rotuloSemEventos = new Label();
         abaJson = new TabPage();
+        seletorJson = new ComboBox();
+        areaJson = new TableLayoutPanel();
         campoJson = new RichTextBox();
         abaObjetos = new TabPage();
         listaObjetos = new ListView();
@@ -105,7 +115,10 @@ partial class FormularioPrincipal
         areaResultado.SuspendLayout();
         abas.SuspendLayout();
         abaEventos.SuspendLayout();
+        areaEventos.SuspendLayout();
+        painelEventos.SuspendLayout();
         abaJson.SuspendLayout();
+        areaJson.SuspendLayout();
         abaObjetos.SuspendLayout();
         acoesResultado.SuspendLayout();
         areaLogs.SuspendLayout();
@@ -402,8 +415,7 @@ partial class FormularioPrincipal
         // abaEventos
         // 
         abaEventos.BackColor = Color.White;
-        abaEventos.Controls.Add(listaEventos);
-        abaEventos.Controls.Add(rotuloSemEventos);
+        abaEventos.Controls.Add(areaEventos);
         abaEventos.Location = new Point(4, 32);
         abaEventos.Name = "abaEventos";
         abaEventos.Padding = new Padding(4);
@@ -411,6 +423,39 @@ partial class FormularioPrincipal
         abaEventos.TabIndex = 0;
         abaEventos.Text = "Eventos";
         // 
+        // areaEventos
+        //
+        areaEventos.ColumnCount = 1;
+        areaEventos.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+        areaEventos.RowCount = 2;
+        areaEventos.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        areaEventos.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
+        areaEventos.Dock = DockStyle.Fill;
+        areaEventos.Margin = Padding.Empty;
+        areaEventos.Name = "areaEventos";
+        areaEventos.Controls.Add(seletorEventos, 0, 0);
+        areaEventos.Controls.Add(painelEventos, 0, 1);
+        //
+        // seletorEventos
+        //
+        seletorEventos.AccessibleName = "Código de rastreamento dos eventos";
+        seletorEventos.DisplayMember = "CodigoInformado";
+        seletorEventos.Dock = DockStyle.Fill;
+        seletorEventos.DropDownStyle = ComboBoxStyle.DropDownList;
+        seletorEventos.Enabled = false;
+        seletorEventos.Margin = new Padding(0, 0, 0, 6);
+        seletorEventos.Name = "seletorEventos";
+        seletorEventos.TabIndex = 0;
+        //
+        // painelEventos
+        //
+        painelEventos.Dock = DockStyle.Fill;
+        painelEventos.Margin = Padding.Empty;
+        painelEventos.Name = "painelEventos";
+        painelEventos.TabIndex = 1;
+        painelEventos.Controls.Add(listaEventos);
+        painelEventos.Controls.Add(rotuloSemEventos);
+        //
         // listaEventos
         // 
         listaEventos.BorderStyle = BorderStyle.None;
@@ -440,7 +485,7 @@ partial class FormularioPrincipal
         // abaJson
         // 
         abaJson.BackColor = Color.White;
-        abaJson.Controls.Add(campoJson);
+        abaJson.Controls.Add(areaJson);
         abaJson.Location = new Point(4, 29);
         abaJson.Name = "abaJson";
         abaJson.Padding = new Padding(8);
@@ -448,6 +493,30 @@ partial class FormularioPrincipal
         abaJson.TabIndex = 1;
         abaJson.Text = "JSON";
         // 
+        // areaJson
+        //
+        areaJson.ColumnCount = 1;
+        areaJson.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+        areaJson.RowCount = 2;
+        areaJson.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        areaJson.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
+        areaJson.Dock = DockStyle.Fill;
+        areaJson.Margin = Padding.Empty;
+        areaJson.Name = "areaJson";
+        areaJson.Controls.Add(seletorJson, 0, 0);
+        areaJson.Controls.Add(campoJson, 0, 1);
+        //
+        // seletorJson
+        //
+        seletorJson.AccessibleName = "Objeto ou lote exibido em JSON";
+        seletorJson.DisplayMember = "CodigoInformado";
+        seletorJson.Dock = DockStyle.Fill;
+        seletorJson.DropDownStyle = ComboBoxStyle.DropDownList;
+        seletorJson.Enabled = false;
+        seletorJson.Margin = new Padding(0, 0, 0, 6);
+        seletorJson.Name = "seletorJson";
+        seletorJson.TabIndex = 0;
+        //
         // campoJson
         // 
         campoJson.BackColor = Color.White;
@@ -459,7 +528,7 @@ partial class FormularioPrincipal
         campoJson.Name = "campoJson";
         campoJson.ReadOnly = true;
         campoJson.Size = new Size(560, 359);
-        campoJson.TabIndex = 0;
+        campoJson.TabIndex = 1;
         campoJson.Text = "O JSON da consulta será apresentado aqui.";
         campoJson.WordWrap = false;
         // 
@@ -603,7 +672,10 @@ partial class FormularioPrincipal
         areaResultado.ResumeLayout(false);
         areaResultado.PerformLayout();
         abas.ResumeLayout(false);
+        painelEventos.ResumeLayout(false);
+        areaEventos.ResumeLayout(false);
         abaEventos.ResumeLayout(false);
+        areaJson.ResumeLayout(false);
         abaJson.ResumeLayout(false);
         abaObjetos.ResumeLayout(false);
         acoesResultado.ResumeLayout(false);
