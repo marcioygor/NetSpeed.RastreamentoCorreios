@@ -1,0 +1,45 @@
+{
+  "codigoObjeto": "AA123456789BR",
+  "eventos": [
+    {
+      "status": "Entrega de teste.",
+      "descricao": null,
+      "dataHora": "2026-08-31T16:04:00",
+      "local": "São José do Rio Preto - SP",
+      "origem": null,
+      "destino": null,
+      "mensagensComplementares": [],
+      "links": [],
+      "imagensComplementares": [],
+      "textoOriginal": "Entrega de teste.\nSão José do Rio Preto - SP\n31/08/2026 16:04"
+    },
+    {
+      "status": "Transferência de teste.",
+      "descricao": "Mensagem complementar detalhe",
+      "dataHora": "2026-08-28T08:52:00",
+      "local": null,
+      "origem": "Unidade A, Cidade A - SP",
+      "destino": "Unidade B, Cidade B - SP",
+      "mensagensComplementares": [
+        "Mensagem complementar detalhe"
+      ],
+      "links": [
+        "https://exemplo.test/detalhe"
+      ],
+      "imagensComplementares": [],
+      "textoOriginal": "Transferência de teste.\nde Unidade A, Cidade A - SP\npara Unidade B, Cidade B - SP\nMensagem complementar detalhe\n28/08/2026 08:52"
+    },
+    {
+      "status": "Evento sem campos opcionais.",
+      "descricao": null,
+      "dataHora": null,
+      "local": null,
+      "origem": null,
+      "destino": null,
+      "mensagensComplementares": [],
+      "links": [],
+      "imagensComplementares": [],
+      "textoOriginal": "Evento sem campos opcionais.\n31/02/2026 08:00"
+    }
+  ]
+}

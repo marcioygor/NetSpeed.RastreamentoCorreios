@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <AssemblyName>NetSpeed.RastreamentoCorreios</AssemblyName>
+    <RootNamespace>NetSpeed.RastreamentoCorreios</RootNamespace>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.31.0" />
+    <PackageReference Include="CefSharp.WinForms.NETCore" Version="154.0.340" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="8.0.1" />
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="8.0.1" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Update="Formularios/FormularioPrincipal.Diagnostico.cs" SubType="Code" DependentUpon="FormularioPrincipal.cs" />
+    <Compile Update="Formularios/FormularioPrincipal.Lote.cs" SubType="Code" DependentUpon="FormularioPrincipal.cs" />
+    <EmbeddedResource Remove="Formularios/FormularioPrincipal.Diagnostico.resx;Formularios/FormularioPrincipal.Lote.resx" />
+    <None Update="appsettings.json" CopyToOutputDirectory="PreserveNewest" />
+    <EmbeddedResource Include="Paginas/Inicio.html" />
+    <EmbeddedResource Include="Scripts/*.js" />
+    <None Update="ModelosOcr/*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

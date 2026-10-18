@@ -1,0 +1,13 @@
+# Modelo OCR local
+
+Motor: Microsoft.ML.OnnxRuntime 1.31.0 (CPU). Modelo `common.onnx` do projeto ddddocr, renomeado `captcha.onnx`, licença MIT no arquivo LICENSE.
+
+- Repositório: https://github.com/sml2h3/ddddocr
+- Revisão: c40f56f95412e10bcb9bd0bd24411e92f896d238
+- Modelo: https://github.com/sml2h3/ddddocr/blob/c40f56f95412e10bcb9bd0bd24411e92f896d238/ddddocr/common.onnx
+- SHA-256: 33B5CD351EE94E73A6BF8FA18C415ED8B819B3FFD342E267C30D8AD8334E34E8
+- Dicionário: CHARSET_BETA de ddddocr/charsets.py na mesma revisão; extraído como dados, sem executar código Python do projeto. O dicionário OLD não corresponde a este modelo.
+
+A inferência ocorre localmente. Usa escala de cinza, altura 64, variantes original e com isolamento de cor, normalização 0..1 e -1..1 e decodificação CTC. Confiança interna não representa taxa de acerto comprovada.
+
+O exportador do modelo declara dimensões de saída antigas; a saída efetiva é [tempo, 1, 8210]. O serviço valida as dimensões e a correspondência com o dicionário antes de decodificar. ONNX Runtime pode registrar aviso dessa divergência de metadados.

@@ -1,0 +1,6 @@
+# Amostras para regressão local
+
+Imagens do portal dos Correios capturadas na sessão de teste autorizada pelo usuário. Rótulos por inspeção visual: amostra-02 = bs3t; amostra-03 = 598h8. Não foram confirmados pelo backend e não representam um benchmark independente. A amostra 01 foi excluída dos testes com rótulo por ser ambígua.
+
+Nenhum valor reconhecido ou rótulo de fixture é usado para preencher o CAPTCHA na consulta real; o fluxo sempre captura e processa a imagem atual da sessão.
+amostra-aceita.png: texto wccr, aceito pelo portal na tentativa 1 da consulta autorizada NN437873753BR em 17/10/2026 00:15 (horário de Brasília). As demais amostras têm apenas rótulo visual.
