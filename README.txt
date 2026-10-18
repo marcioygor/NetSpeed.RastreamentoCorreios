@@ -1,40 +1,61 @@
-1. SOBRE O PROJETO
+NETSPEED - RASTREAMENTO CORREIOS
 
-A aplicação automatiza consultas de rastreamento no portal dos Correios, reconhece o CAPTCHA localmente e apresenta todo o histórico retornado na interface e em JSON.
+1. OBJETIVO E FUNCIONALIDADES
 
-2. TECNOLOGIAS UTILIZADAS
+Aplicação desktop para automatizar consultas no portal dos Correios, reconhecer o CAPTCHA com OCR local e apresentar o histórico retornado.
 
-C# e .NET 8 implementam a aplicação e a automação. Windows Forms oferece a interface desktop. CefSharp incorpora o Chromium para executar o fluxo real do portal. JavaScript localiza e interpreta elementos do DOM. ONNX Runtime executa o modelo OCR local, sem serviço externo de reconhecimento. As dependências NuGet estão declaradas nos projetos, com versões registradas em packages.lock.json.
+- Consulta individual e processamento sequencial de múltiplos códigos.
+- Seleção do histórico de cada objeto na aba Eventos.
+- Visualização, cópia e exportação do JSON individual ou do lote completo.
+- Resumo dos resultados e falhas na aba Objetos.
+- Cancelamento, timeouts, até dez tentativas de CAPTCHA e logs de diagnóstico.
+- Interrupção do lote quando o portal informa limitação de requisições, preservando os resultados anteriores.
 
-A navegação aguarda o carregamento e os estados esperados da página. Os scripts usam seletores dos campos, CAPTCHA, alertas e histórico; o histórico completo tem preferência sobre o resumo. O OCR usa pré-processamento de imagem e decodificação CTC. O resultado é validado pela resposta do portal, com renovação da imagem e até dez tentativas. A lógica de navegação, extração e reconhecimento permanece separada para facilitar manutenção e testes.
+Os eventos mantêm os dados disponíveis no portal: situação, descrição, data/hora, local, origem, destino, mensagens, links, imagens complementares e texto original. Campos ausentes permanecem nulos ou vazios. Um exemplo sintético está em docs\exemplo-resultado.json no código-fonte.
 
-Os eventos são convertidos em modelos C# e serializados com System.Text.Json. São preservados ordem, situação, descrição, data/hora, local, origem, destino, mensagens, links, imagens complementares e texto original. Campos ausentes permanecem nulos ou vazios; datas não recebem um fuso que o portal não informa.
+2. TECNOLOGIAS
 
-3. COMO EXECUTAR
+C# e .NET 8 implementam a aplicação. WinForms oferece a interface desktop e CefSharp incorpora o Chromium para executar o fluxo do portal. Scripts JavaScript consultam os elementos do DOM. ONNX Runtime executa o modelo OCR localmente, sem serviço externo de reconhecimento. System.Text.Json preserva a estrutura dos resultados na exportação. As versões das dependências NuGet estão registradas em packages.lock.json.
 
-Pré-requisitos: Windows x64, SDK .NET 8, Visual Studio com suporte a Windows Forms em .NET 8 e Visual C++ Redistributable x64. É necessário acesso à internet para restaurar os pacotes NuGet e consultar o portal.
+3. EXECUTAR A VERSÃO PUBLICADA
 
-Abra NetSpeed.RastreamentoCorreios.sln no Visual Studio, restaure os pacotes da solução, selecione Release e inicie o projeto NetSpeed.RastreamentoCorreios.WinForms. Feche a instância da mesma configuração antes de recompilar.
+Requisitos: Windows x64 compatível, Microsoft Visual C++ Redistributable x64 instalado e acesso à internet.
 
-Na raiz da solução, também é possível executar:
+Baixe NetSpeed.RastreamentoCorreios-win-x64.zip na Release v1.0.0 do repositório https://github.com/marcioygor/NetSpeed.RastreamentoCorreios. Extraia o ZIP inteiro para uma pasta local e execute NetSpeed.RastreamentoCorreios.exe. Não execute de dentro do ZIP nem copie apenas o executável: mantenha as bibliotecas, recursos do Chromium, pasta ModelosOcr e appsettings.json juntos.
+
+A publicação self-contained inclui o runtime .NET 8. Não é necessário instalar o runtime .NET, o SDK ou o Visual Studio para utilizar essa versão.
+
+4. COMPILAR E TESTAR O CÓDIGO-FONTE
+
+Requisitos: Windows x64, SDK .NET 8, Microsoft Visual C++ Redistributable x64 e acesso à internet para restaurar os pacotes NuGet. O Visual Studio com suporte a WinForms em .NET 8 é opcional para edição e depuração.
+
+Na raiz do repositório:
+
 dotnet restore .\NetSpeed.RastreamentoCorreios.sln --locked-mode
 dotnet build .\NetSpeed.RastreamentoCorreios.sln -c Release --no-restore
 dotnet test .\NetSpeed.RastreamentoCorreios.sln -c Release --no-build --no-restore
 dotnet run --project .\src\NetSpeed.RastreamentoCorreios.WinForms -c Release --no-build
 
-A publicação fica em entrega\win-x64: copie a pasta inteira e execute NetSpeed.RastreamentoCorreios.exe. Ela inclui o runtime .NET 8 e continua exigindo Visual C++ Redistributable x64. Para gerar a publicação:
-dotnet publish .\src\NetSpeed.RastreamentoCorreios.WinForms\NetSpeed.RastreamentoCorreios.WinForms.csproj -c Release -r win-x64 --self-contained true -o .\entrega\win-x64
+Feche a aplicação antes de recompilar a mesma configuração. Para gerar a publicação completa:
 
-O appsettings.json ao lado do executável configura URL, timeouts, OCR e tentativas. Os padrões são 45 segundos para navegação, 20 segundos para DOM e OCR, e dez tentativas de CAPTCHA. Configurações inválidas impedem a inicialização com mensagem e log.
+dotnet publish .\src\NetSpeed.RastreamentoCorreios.WinForms\NetSpeed.RastreamentoCorreios.WinForms.csproj -c Release -r win-x64 --self-contained true -p:PublishTrimmed=false -p:PublishSingleFile=false -o .\entrega\v1.0.0\win-x64
 
-4. COMO UTILIZAR
+Os arquivos de publicação e ZIPs de entrega não devem ser versionados na branch main; o ZIP executável é distribuído como anexo da Release.
 
-Informe um código, como NN437873753BR, e clique em Consultar. Aguarde e veja o histórico na aba Eventos. Use Copiar JSON ou Exportar JSON para obter o resultado. Para um lote, separe os códigos por ponto e vírgula, vírgula ou espaço; a execução é sequencial. A aba Objetos permite selecionar os resultados. Um exemplo de JSON com dados sintéticos está em docs\exemplo-resultado.json.
+5. UTILIZAÇÃO, CONFIGURAÇÃO E LOGS
 
-Cancelar interrompe as esperas e impede novas tentativas locais, preservando os objetos já tratados no lote. Uma solicitação já recebida pelo portal não pode ser desfeita. Código inválido, objeto não encontrado, erro de navegação, mudança de elementos, timeout e falha de processamento são informados; no lote, cada objeto mantém seu resultado ou erro. Estruturas desconhecidas interrompem a extração para evitar histórico parcial.
+Informe um código e clique em Consultar. Para um lote, separe os códigos por ponto e vírgula, vírgula ou espaço. A execução é sequencial; códigos repetidos reaproveitam apenas resultados concluídos no mesmo lote. Uma nova consulta busca os dados novamente.
 
-A divisória entre navegador e resultados pode ser arrastada para ajustar os painéis.
+As abas Eventos e JSON oferecem seletores independentes quando há múltiplos objetos. Copiar JSON e Exportar JSON utilizam exatamente o conteúdo exibido na aba JSON. Cancelar interrompe as esperas e impede novas tentativas, preservando os objetos já tratados no lote. Uma requisição já recebida pelo portal não pode ser desfeita.
 
-Os logs ficam em %LOCALAPPDATA%\NetSpeed\RastreamentoCorreios\logs e as mensagens aparecem no painel de atividade.
+O appsettings.json ao lado do executável configura URL, timeouts, OCR e tentativas. Os padrões são 45 segundos para navegação, 20 segundos para DOM e OCR, e dez tentativas de CAPTCHA.
 
-Limitações: alterações no portal podem exigir revisão dos seletores; a confiança do OCR não equivale a uma taxa de acerto independente. Não há garantia de reconhecimento em todas as imagens. A distribuição em outro computador, diferentes escalas de DPI e o esgotamento do timeout nativo do OCR ainda precisam de validação. Melhorias possíveis são ampliar as amostras independentes do OCR e as regressões com históricos autorizados distintos.
+Logs: %LOCALAPPDATA%\NetSpeed\RastreamentoCorreios\logs
+
+A interface apresenta mensagens objetivas; os arquivos de log mantêm os detalhes técnicos das exceções. Os logs não fazem parte do ZIP de distribuição.
+
+6. LIMITAÇÕES CONHECIDAS
+
+O portal pode restringir a frequência das consultas. Ao detectar uma mensagem explícita de excesso de requisições ou HTTP 429 disponível, a aplicação interrompe novas consultas do lote e marca os objetos restantes como não consultados. Não há repetição automática após esse bloqueio nem frequência segura confirmada pelo portal.
+
+Mudanças no portal podem exigir revisão dos seletores. O OCR não garante reconhecimento de todas as imagens; sua confiança interna não representa uma taxa de acerto independente. A execução em outro computador e diferentes escalas de DPI ainda depende de validação nesse ambiente.

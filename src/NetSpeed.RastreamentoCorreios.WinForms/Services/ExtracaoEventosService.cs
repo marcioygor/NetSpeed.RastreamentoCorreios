@@ -6,10 +6,12 @@ namespace NetSpeed.RastreamentoCorreios.Services;
 
 public sealed class ExtracaoEventosService(JavascriptCorreiosService javascript)
 {
+    private static readonly string ScriptExtracao = RecursosAplicacao.LerTexto("Scripts.ExtrairEventos.js");
+
     public async Task<IReadOnlyList<EventoRastreamento>> ExtrairEventosAsync(ChromiumWebBrowser navegador, CancellationToken cancellationToken)
     {
         var eventos = await javascript.ExecutarAsync<List<EventoRastreamento>>(navegador,
-            RecursosAplicacao.LerTexto("Scripts.ExtrairEventos.js"), cancellationToken);
+            ScriptExtracao, cancellationToken);
         if (eventos is null || eventos.Count == 0)
             throw new InvalidDataException("Nenhum evento foi extraído do histórico.");
         return eventos;

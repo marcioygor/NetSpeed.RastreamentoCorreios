@@ -20,11 +20,7 @@ public partial class FormularioPrincipal
         contadorEventos.Text = "RESULTADO  ·  Consultando lote";
         abas.SelectedTab = abaObjetos;
         DefinirProcessando(true);
-        var progressoConsulta = new Progress<string>(texto =>
-        {
-            if (ReferenceEquals(operacaoAtual, cancelamento) && !cancelamento.IsCancellationRequested)
-                DefinirStatus(texto, Color.FromArgb(0, 123, 174));
-        });
+        var progressoConsulta = CriarProgressoConsulta(cancelamento);
         try
         {
             await foreach (var item in consultaLote.ConsultarAsync(codigos,
@@ -35,9 +31,14 @@ public partial class FormularioPrincipal
                 if (resultadoAtual is null && item.Resultado is not null)
                     ApresentarEventos(item.Resultado);
             }
-            var falhas = resultadoLoteAtual.Count(item => item.Resultado is null);
-            DefinirStatus(falhas == 0 ? "Lote concluído" : $"Lote: {falhas} falha(s)", falhas == 0 ? Color.SeaGreen : Color.DarkOrange);
-            logger.LogInformation("Lote finalizado: {Concluidos} objetos tratados, {Falhas} falhas.", resultadoLoteAtual.Count, falhas);
+            var naoConsultados = resultadoLoteAtual.Count(item => item.TipoErro == "nao_consultado");
+            var falhas = resultadoLoteAtual.Count(item => item.Resultado is null) - naoConsultados;
+            if (resultadoLoteAtual.Any(item => item.TipoErro == "limite_requisicoes"))
+                DefinirStatus("Lote interrompido: consultas limitadas pelo portal", Color.DarkOrange);
+            else
+                DefinirStatus(falhas == 0 ? "Lote concluído" : $"Lote: {falhas} falha(s)", falhas == 0 ? Color.SeaGreen : Color.DarkOrange);
+            logger.LogInformation("Lote finalizado: {Concluidos} objetos tratados, {Falhas} falhas, {NaoConsultados} não consultados.",
+                resultadoLoteAtual.Count, falhas, naoConsultados);
         }
         catch (OperationCanceledException)
         {
@@ -70,8 +71,13 @@ public partial class FormularioPrincipal
 
     private void AdicionarObjeto(ResultadoConsultaObjeto item)
     {
-        listaObjetos.Items.Add(new ListViewItem([item.CodigoInformado,
-            item.Resultado is null ? "Falha" : "Concluído",
+        var situacao = item switch
+        {
+            { TipoErro: "nao_consultado" } => "Não consultado",
+            { Resultado: null } => "Falha",
+            _ => "Concluído"
+        };
+        listaObjetos.Items.Add(new ListViewItem([item.CodigoInformado, situacao,
             item.Resultado is null ? item.Erro ?? "Falha" : $"{item.Resultado.Eventos.Count} eventos"])
         {
             Tag = item,

@@ -91,10 +91,28 @@ public sealed class NavegadorIntegracao : IAsyncLifetime
         var marcador = "fixture-" + Guid.NewGuid().ToString("N");
         if (!html.Contains("charset", StringComparison.OrdinalIgnoreCase))
             html = "<!doctype html><html><head><meta charset='utf-8'></head><body>" + html + "</body></html>";
-        navegador.LoadHtml(html + $"<div id='{marcador}' hidden></div>");
-        var javascript = new JavascriptCorreiosService(new ConfiguracaoAutomacao { TimeoutElementoSegundos = 5 });
-        await javascript.AguardarAsync<string>(navegador,
-            $"(() => document.getElementById('{marcador}') ? JSON.stringify('pronto') : null)()", CancellationToken.None);
+        var carregado = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        EventHandler<FrameLoadEndEventArgs> aoCarregar = (_, evento) =>
+        {
+            if (evento.Frame.IsMain && evento.Url.Contains(marcador, StringComparison.Ordinal))
+                carregado.TrySetResult();
+        };
+        navegador.FrameLoadEnd += aoCarregar;
+        try
+        {
+            navegador.LoadHtml(html + $"<div id='{marcador}' hidden></div>");
+            await carregado.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            // A preparação deve aceitar páginas que a automação precisa rejeitar.
+            using var frame = navegador.GetMainFrame();
+            var resposta = await frame.EvaluateScriptAsPromiseAsync(
+                $"return document.getElementById('{marcador}') ? 'pronto' : null").WaitAsync(TimeSpan.FromSeconds(5));
+            if (!resposta.Success || resposta.Result is not "pronto")
+                throw new InvalidOperationException("A fixture HTML não terminou de carregar.");
+        }
+        finally
+        {
+            navegador.FrameLoadEnd -= aoCarregar;
+        }
     }
 
     public async Task DisposeAsync()

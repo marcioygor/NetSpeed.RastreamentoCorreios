@@ -8,6 +8,7 @@ TestResults/
 artifacts/
 logs/
 entrega/
+**/publish/
 **/chromium/
 **/diagnosticos/
 **/*.variantes/

@@ -147,7 +147,6 @@ public partial class FormularioPrincipal : Form
         }
         catch (Exception excecao)
         {
-            // Fronteira do diagnóstico: qualquer falha deve produzir um código de saída não zero.
             logger.LogError(excecao, "Falha na verificação de inicialização.");
             Environment.ExitCode = 1;
         }
@@ -191,11 +190,7 @@ public partial class FormularioPrincipal : Form
             LimparJsonConsulta();
             LimparEventosConsulta();
             contadorEventos.Text = "RESULTADO  ·  Consultando";
-            var progressoConsulta = new Progress<string>(texto =>
-            {
-                if (ReferenceEquals(operacaoAtual, cancelamento) && !cancelamento.IsCancellationRequested)
-                    DefinirStatus(texto, Color.FromArgb(0, 123, 174));
-            });
+            var progressoConsulta = CriarProgressoConsulta(cancelamento);
             resultadoAtual = await consulta.ConsultarRastreamentoAsync(navegador, campoCodigo.Text, progressoConsulta, cancelamento.Token);
             AdicionarObjeto(new ResultadoConsultaObjeto { CodigoInformado = campoCodigo.Text, Resultado = resultadoAtual });
             ApresentarEventos(resultadoAtual);
@@ -333,6 +328,12 @@ public partial class FormularioPrincipal : Form
         if (rotuloSemEventos.Visible)
             rotuloSemEventos.BringToFront();
     }
+
+    private IProgress<string> CriarProgressoConsulta(CancellationTokenSource cancelamento) => new Progress<string>(texto =>
+    {
+        if (ReferenceEquals(operacaoAtual, cancelamento) && !cancelamento.IsCancellationRequested)
+            DefinirStatus(texto, Color.FromArgb(0, 123, 174));
+    });
 
     private void DefinirStatus(string texto, Color cor)
     {

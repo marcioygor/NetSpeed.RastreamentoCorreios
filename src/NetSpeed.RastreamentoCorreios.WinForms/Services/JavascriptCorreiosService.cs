@@ -2,18 +2,22 @@ using System.Text.Json;
 using CefSharp;
 using CefSharp.WinForms;
 using NetSpeed.RastreamentoCorreios.Modelos;
+using NetSpeed.RastreamentoCorreios.Excecoes;
+using NetSpeed.RastreamentoCorreios.Infraestrutura;
 
 namespace NetSpeed.RastreamentoCorreios.Services;
 
 public sealed class JavascriptCorreiosService(ConfiguracaoAutomacao configuracao)
 {
     private static readonly JsonSerializerOptions Opcoes = new(JsonSerializerDefaults.Web);
+    private static readonly string ScriptLimiteRequisicoes = RecursosAplicacao.LerTexto("Scripts.VerificarLimiteRequisicoes.js");
+    private const string MarcadorLimiteRequisicoes = "NETSPEED_LIMITE_REQUISICOES: ";
 
     public async Task<T?> ExecutarAsync<T>(ChromiumWebBrowser navegador, string script, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var resposta = await navegador.EvaluateScriptAsPromiseAsync("return " + script,
-            TimeSpan.FromSeconds(configuracao.TimeoutElementoSegundos)).WaitAsync(cancellationToken);
+        var resposta = await ExecutarScriptVerificadoAsync(navegador, script,
+            TimeSpan.FromSeconds(configuracao.TimeoutElementoSegundos), cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
         if (!resposta.Success)
             throw new InvalidOperationException("Não foi possível executar o JavaScript de automação: " + resposta.Message);
@@ -22,6 +26,21 @@ public sealed class JavascriptCorreiosService(ConfiguracaoAutomacao configuracao
         if (resposta.Result is not string json)
             throw new InvalidDataException("O JavaScript não retornou JSON no formato esperado.");
         return JsonSerializer.Deserialize<T>(json, Opcoes);
+    }
+
+    internal static async Task<JavascriptResponse> ExecutarScriptVerificadoAsync(ChromiumWebBrowser navegador,
+        string script, TimeSpan timeout, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var verificacao = "const limite = " + ScriptLimiteRequisicoes + "; if (limite) throw new Error(" +
+            JsonSerializer.Serialize(MarcadorLimiteRequisicoes) + " + limite); return " + script;
+        // O frame carregado permite inspecionar páginas de bloqueio sem scripts próprios.
+        using var frame = navegador.GetMainFrame();
+        var resposta = await frame.EvaluateScriptAsPromiseAsync(verificacao, timeout).WaitAsync(cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!resposta.Success && resposta.Message?.Contains(MarcadorLimiteRequisicoes, StringComparison.Ordinal) == true)
+            throw ConsultaRastreamentoException.PorLimiteRequisicoes($"Página {navegador.Address}: {resposta.Message}");
+        return resposta;
     }
 
     public async Task<T> AguardarAsync<T>(ChromiumWebBrowser navegador, string script, CancellationToken cancellationToken) where T : class

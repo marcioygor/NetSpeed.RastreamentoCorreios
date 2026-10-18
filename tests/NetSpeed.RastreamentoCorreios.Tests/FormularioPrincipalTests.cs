@@ -64,6 +64,13 @@ public sealed class FormularioPrincipalTests
                         Assert.True(botao.Bottom <= painel.ClientSize.Height, $"{nome}: {botao.Bottom} > {painel.ClientSize.Height}");
                     }
                 }
+                Executar("AdicionarObjeto", new ResultadoConsultaObjeto
+                {
+                    CodigoInformado = "BB123456789BR", TipoErro = "nao_consultado",
+                    Erro = "Objeto não consultado porque o portal limitou temporariamente as consultas. Tente novamente mais tarde."
+                });
+                Assert.Equal("Não consultado", objetos.Items[1].SubItems[1].Text);
+                Assert.Contains("portal limitou", objetos.Items[1].SubItems[2].Text);
                 objetos.Columns.Clear();
                 typeof(FormularioPrincipal).GetMethod("AjustarColunasObjetos", flags)!.Invoke(formulario, null);
                 formulario.Close();

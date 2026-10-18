@@ -1,3 +1,4 @@
+using CefSharp;
 using System.Net;
 using NetSpeed.RastreamentoCorreios.Excecoes;
 using NetSpeed.RastreamentoCorreios.Interfaces;
@@ -8,11 +9,12 @@ using NetSpeed.RastreamentoCorreios.Infraestrutura;
 using NetSpeed.RastreamentoCorreios.Modelos;
 using NetSpeed.RastreamentoCorreios.Services;
 using Xunit;
+using Xunit.Abstractions;
 
 namespace NetSpeed.RastreamentoCorreios.Tests.Integracao;
 
 [Trait("Categoria", "Integracao")]
-public sealed class AutomacaoDomTests(NavegadorIntegracao ambiente) : IClassFixture<NavegadorIntegracao>
+public sealed class AutomacaoDomTests(NavegadorIntegracao ambiente, ITestOutputHelper saida) : IClassFixture<NavegadorIntegracao>
 {
     private static JavascriptCorreiosService CriarJavascript(int timeout = 5) => new(new ConfiguracaoAutomacao
     {
@@ -358,7 +360,7 @@ public sealed class AutomacaoDomTests(NavegadorIntegracao ambiente) : IClassFixt
             javascript, ocr, new ExtracaoEventosService(javascript), NullLogger<ConsultaRastreamentoService>.Instance);
     }
 
-    private static async Task ComPortalLocalAsync(string cenario, Func<Uri, Task> verificar)
+    private static async Task ComPortalLocalAsync(string cenario, Func<Uri, Task> verificar, Action<int, int, int>? metricas = null)
     {
         var imagens = Enumerable.Range(0, 4).Select(indice =>
         {
@@ -389,6 +391,21 @@ public sealed class AutomacaoDomTests(NavegadorIntegracao ambiente) : IClassFixt
             document.getElementById('b-pesquisar').onclick = () => {
                 window.envios++;
                 if (cenario === 'falha-envio') { retornarFalso(); return; }
+                if (cenario === 'lote-desempenho') {
+                    const codigo = document.getElementById('objeto').value;
+                    document.getElementById('alerta').className = 'aberto';
+                    document.querySelector('#alerta .msg').textContent = 'Buscando...';
+                    fetch('/consultar?codigo=' + encodeURIComponent(codigo)).then(resposta => resposta.json()).then(resultado => {
+                        document.querySelector('.ship-steps').innerHTML = "<li class='step'><div class='step-content'><p class='text-head'>Evento " + resultado.codigo + "</p></div></li>";
+                        document.getElementById('alerta').className = '';
+                    });
+                    return;
+                }
+                if (cenario === 'limite-envio') {
+                    document.body.textContent = 'We are sorry, but the site has received too many requests. Please try again later.';
+                    return;
+                }
+                if (cenario === 'limite-recurso') { fetch('/limite'); return; }
                 if (cenario === 'objeto-nao-encontrado') {
                     document.getElementById('alerta').className = 'aberto';
                     document.querySelector('#alerta .msg').textContent = 'Objeto não encontrado';
@@ -401,11 +418,29 @@ public sealed class AutomacaoDomTests(NavegadorIntegracao ambiente) : IClassFixt
             };
             </script></body></html>
             """;
+        if (cenario is "limite-pagina" or "limite-http429" or "limite-http403" or "limite-redirecionado")
+            html = "<html><body>We are sorry, but the site has received too many requests. Please try again later.</body></html>";
+        else if (cenario is "limite-http429-sem-mensagem" or "erro-http503")
+            html = "<html><body>Serviço indisponível</body></html>";
+        if (cenario == "limite-http429-monitorado")
+            html = """
+                <html><body>We are sorry, but the site has received too many requests. Please try again later.
+                <script>
+                window.execucoesBloqueio = 0;
+                const erroOriginal = Error;
+                window.Error = function(...argumentos) { window.execucoesBloqueio++; return new erroOriginal(...argumentos); };
+                </script></body></html>
+                """;
+        else if (cenario == "falha-javascript-inicial")
+            html = "<html><body><script>JSON.stringify = () => { throw new TypeError('Falha técnica simulada'); };</script></body></html>";
         var conteudo = System.Text.Encoding.UTF8.GetBytes(html);
         var servidor = new TcpListener(IPAddress.Loopback, 0);
         servidor.Start();
         var porta = ((IPEndPoint)servidor.LocalEndpoint).Port;
         using var cancelamento = new CancellationTokenSource();
+        var paginas = 0;
+        var consultas = 0;
+        var requisicoes = 0;
         async Task ResponderAsync(TcpClient cliente)
         {
             using (cliente)
@@ -415,16 +450,38 @@ public sealed class AutomacaoDomTests(NavegadorIntegracao ambiente) : IClassFixt
                 using var leitor = new StreamReader(fluxo, leaveOpen: true);
                 var pedido = await leitor.ReadLineAsync(cancelamento.Token);
                 while (!string.IsNullOrEmpty(await leitor.ReadLineAsync(cancelamento.Token))) { }
-                var redirecionar = cenario == "redirecionamento" && pedido?.Contains(" /app/index.php ") == true;
+                if (pedido is null)
+                    return;
+                Interlocked.Increment(ref requisicoes);
+                if (pedido?.Contains(" /app/index.php ") == true)
+                    Interlocked.Increment(ref paginas);
+                var caminhoPedido = pedido?.Split(' ')[1] ?? "";
+                var conteudoResposta = conteudo;
+                if (caminhoPedido.StartsWith("/consultar?codigo=", StringComparison.Ordinal))
+                {
+                    Interlocked.Increment(ref consultas);
+                    var codigo = WebUtility.UrlDecode(caminhoPedido["/consultar?codigo=".Length..]);
+                    conteudoResposta = System.Text.Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new { codigo }));
+                }
+                var redirecionar = (cenario is "redirecionamento" or "limite-redirecionado") && pedido?.Contains(" /app/index.php ") == true;
+                var statusHttp = cenario switch
+                {
+                    "limite-http429" or "limite-http429-sem-mensagem" or "limite-http429-monitorado" => 429,
+                    "limite-http403" => 403,
+                    "erro-http503" => 503,
+                    _ => pedido?.Contains(" /limite ") == true ? 429 : 200
+                };
                 var cabecalho = redirecionar
                     ? "HTTP/1.1 302 Found\r\nLocation: /outra-pagina\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
-                    : $"HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {conteudo.Length}\r\nConnection: close\r\n\r\n";
+                    : $"HTTP/1.1 {statusHttp} Teste\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {conteudoResposta.Length}\r\nConnection: close\r\n\r\n";
                 await fluxo.WriteAsync(System.Text.Encoding.ASCII.GetBytes(cabecalho), cancelamento.Token);
                 if (!redirecionar)
-                    await fluxo.WriteAsync(conteudo, cancelamento.Token);
+                    await fluxo.WriteAsync(conteudoResposta, cancelamento.Token);
             }
             catch (OperationCanceledException) when (cancelamento.IsCancellationRequested) { }
             catch (IOException) when (cancelamento.IsCancellationRequested) { }
+            catch (IOException excecao) when (excecao.InnerException is SocketException socket &&
+                socket.SocketErrorCode is SocketError.ConnectionAborted or SocketError.ConnectionReset) { }
         }
         var atendimento = Task.Run(async () =>
         {
@@ -453,6 +510,7 @@ public sealed class AutomacaoDomTests(NavegadorIntegracao ambiente) : IClassFixt
             cancelamento.Cancel();
             servidor.Stop();
             await atendimento;
+            metricas?.Invoke(paginas, consultas, requisicoes);
         }
     }
 
@@ -495,5 +553,137 @@ public sealed class AutomacaoDomTests(NavegadorIntegracao ambiente) : IClassFixt
                 Directory.Delete(diretorio, true);
             }
         }));
+
+
+    [Theory]
+    [InlineData("We are sorry, but the site has received too many requests. Please try again later.")]
+    [InlineData("Too many requests")]
+    [InlineData("Excesso de requisições")]
+    [InlineData("Limite de consultas atingido")]
+    public Task IdentificaMensagemExplicitaDeLimiteAntesDeExecutarScripts(string mensagem) => ambiente.ExecutarAsync(async navegador =>
+    {
+        await NavegadorIntegracao.CarregarHtmlAsync(navegador, "<p>" + WebUtility.HtmlEncode(mensagem) + "</p>");
+        var erro = await Assert.ThrowsAsync<ConsultaRastreamentoException>(() => CriarJavascript().ExecutarAsync<bool>(navegador,
+            "(() => { window.scriptExecutado = true; return JSON.stringify(true); })()", CancellationToken.None));
+        Assert.Equal("limite_requisicoes", erro.TipoErro);
+        Assert.Equal("O portal dos Correios limitou temporariamente as consultas. Tente novamente mais tarde.", erro.MensagemUsuario);
+        Assert.Contains(mensagem, erro.Message);
+        // Inspeção direta do teste: a automação não chegou a executar o script solicitado.
+        var resposta = await navegador.EvaluateScriptAsPromiseAsync("return JSON.stringify(window.scriptExecutado === undefined)");
+        Assert.Equal("true", resposta.Result);
+    });
+
+    [Theory]
+    [InlineData("Please try again later.")]
+    [InlineData("Serviço indisponível")]
+    [InlineData("HTTP 500")]
+    [InlineData("Confira o limite de consultas permitido.")]
+    public Task MensagemGenericaNaoEhClassificadaComoLimite(string mensagem) => ambiente.ExecutarAsync(async navegador =>
+    {
+        await NavegadorIntegracao.CarregarHtmlAsync(navegador, "<p>" + mensagem + "</p>");
+        Assert.True(await CriarJavascript().ExecutarAsync<bool>(navegador, "(() => JSON.stringify(true))()", CancellationToken.None));
+    });
+
+    [Theory]
+    [InlineData("limite-pagina", 0)]
+    [InlineData("limite-envio", 1)]
+    [InlineData("limite-http429", 0)]
+    [InlineData("limite-http429-sem-mensagem", 0)]
+    [InlineData("limite-http403", 0)]
+    [InlineData("limite-redirecionado", 0)]
+    [InlineData("limite-recurso", 1)]
+    public Task LimitacaoInterrompeConsultaSemRepetirCaptcha(string cenario, int leiturasEsperadas) => ambiente.ExecutarAsync(async navegador =>
+        await ComPortalLocalAsync(cenario, async endereco =>
+        {
+            var leituras = 0;
+            var ocr = new ProcessamentoCaptchaTeste((_, _) =>
+            {
+                leituras++;
+                return Task.FromResult(new ResultadoOcrCaptcha("abcd", 0.9f, "teste", 1));
+            });
+            var erro = await Assert.ThrowsAsync<ConsultaRastreamentoException>(() => CriarConsultaLocal(endereco, ocr, 3)
+                .ConsultarRastreamentoAsync(navegador, "AA123456789BR", new Progress<string>(), CancellationToken.None));
+            Assert.Equal("limite_requisicoes", erro.TipoErro);
+            Assert.Equal(leiturasEsperadas, leituras);
+            Assert.DoesNotContain("NETSPEED", erro.MensagemUsuario);
+            if (cenario.Contains("http429"))
+                Assert.Contains("HTTP 429", erro.Message);
+        }));
+
+    [Fact]
+    public Task Http429PreservaMensagemOriginalSemExecutarJavascriptDeAutomacao() => ambiente.ExecutarAsync(async navegador =>
+        await ComPortalLocalAsync("limite-http429-monitorado", async endereco =>
+        {
+            var configuracao = new ConfiguracaoAutomacao { UrlPortal = endereco };
+            var navegacao = new NavegacaoCorreiosService(configuracao, NullLogger<NavegacaoCorreiosService>.Instance);
+            var erro = await Assert.ThrowsAsync<ConsultaRastreamentoException>(() => navegacao.AbrirPortalAsync(navegador, CancellationToken.None));
+            Assert.Equal("limite_requisicoes", erro.TipoErro);
+            Assert.Contains("HTTP 429", erro.Message);
+            Assert.Contains("too many requests", erro.Message);
+            var verificacao = await navegador.EvaluateScriptAsync("window.execucoesBloqueio");
+            Assert.True(verificacao.Success);
+            Assert.Equal(0, Convert.ToInt32(verificacao.Result));
+        }));
+
+    [Fact]
+    public Task FalhaJavascriptNaInspecaoNaoEhIgnoradaNemClassificadaComoBloqueio() => ambiente.ExecutarAsync(async navegador =>
+        await ComPortalLocalAsync("falha-javascript-inicial", async endereco =>
+        {
+            var configuracao = new ConfiguracaoAutomacao { UrlPortal = endereco };
+            var navegacao = new NavegacaoCorreiosService(configuracao, NullLogger<NavegacaoCorreiosService>.Instance);
+            var erro = await Assert.ThrowsAsync<InvalidOperationException>(() => navegacao.AbrirPortalAsync(navegador, CancellationToken.None));
+            Assert.Contains("Falha técnica simulada", erro.Message);
+        }));
+
+    [Fact]
+    public Task OutrosErrosHttpMantemTratamentoDeNavegacao() => ambiente.ExecutarAsync(async navegador =>
+        await ComPortalLocalAsync("erro-http503", async endereco =>
+        {
+            var ocr = new ProcessamentoCaptchaTeste((_, _) => throw new InvalidOperationException("OCR não deve executar"));
+            var erro = await Assert.ThrowsAsync<IOException>(() => CriarConsultaLocal(endereco, ocr, 3)
+                .ConsultarRastreamentoAsync(navegador, "AA123456789BR", new Progress<string>(), CancellationToken.None));
+            Assert.Contains("HTTP 503", erro.Message);
+        }));
+
+
+    [Fact]
+    public Task MedeLoteLocalComCodigoRepetido() => ambiente.ExecutarAsync(async navegador =>
+    {
+        for (var execucao = 1; execucao <= 3; execucao++)
+        {
+            var tempos = new List<double>();
+            var duracaoLote = 0d;
+            await ComPortalLocalAsync("lote-desempenho", async endereco =>
+            {
+                var ocr = new ProcessamentoCaptchaTeste((_, _) => Task.FromResult(new ResultadoOcrCaptcha("abcd", 0.9f, "teste", 1)));
+                var consulta = CriarConsultaLocal(endereco, ocr, 3);
+                var lote = new ConsultaLoteService(NullLogger<ConsultaLoteService>.Instance);
+                var itens = new List<ResultadoConsultaObjeto>();
+                var total = System.Diagnostics.Stopwatch.StartNew();
+                await foreach (var item in lote.ConsultarAsync(["AA123456789BR", "BB123456789BR", "aa123456789br", "CC123456789BR"], async (codigo, token) =>
+                {
+                    var tempo = System.Diagnostics.Stopwatch.StartNew();
+                    var resultado = await consulta.ConsultarRastreamentoAsync(navegador, codigo, new Progress<string>(), token);
+                    tempos.Add(tempo.Elapsed.TotalMilliseconds);
+                    return resultado;
+                }, CancellationToken.None))
+                    itens.Add(item);
+                duracaoLote = total.Elapsed.TotalMilliseconds;
+                Assert.Equal(4, itens.Count);
+                Assert.All(itens, item =>
+                {
+                    Assert.NotNull(item.Resultado);
+                    Assert.Equal(item.CodigoInformado.ToUpperInvariant(), item.Resultado.CodigoRastreamento);
+                    Assert.Contains(item.Resultado.CodigoRastreamento, Assert.Single(item.Resultado.Eventos).Situacao);
+                });
+            }, (paginas, consultas, requisicoes) =>
+            {
+                Assert.Equal(3, paginas);
+                Assert.Equal(3, consultas);
+                Assert.Equal(3, tempos.Count);
+                saida.WriteLine($"MEDICAO execucao={execucao}; objetos=4; navegacoes={paginas}; envios={consultas}; http_local={requisicoes}; media_consulta_ms={tempos.Average():F2}; lote_ms={duracaoLote:F2}");
+            });
+        }
+    });
 
 }

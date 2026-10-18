@@ -14,6 +14,10 @@ public sealed class ConsultaRastreamentoService(ConfiguracaoAutomacao configurac
     JavascriptCorreiosService javascript, IProcessamentoCaptchaService processamentoCaptcha, ExtracaoEventosService extracao,
     ILogger<ConsultaRastreamentoService> logger)
 {
+    private static readonly string ScriptCaptura = RecursosAplicacao.LerTexto("Scripts.CapturarCaptcha.js");
+    private static readonly string ScriptPreenchimento = RecursosAplicacao.LerTexto("Scripts.PreencherConsulta.js");
+    private static readonly string ScriptEstado = RecursosAplicacao.LerTexto("Scripts.ObterEstadoConsulta.js");
+
     public async Task<ResultadoRastreamento> ConsultarRastreamentoAsync(ChromiumWebBrowser navegador, string codigo,
         IProgress<string> progresso, CancellationToken cancellationToken, string? diretorioDiagnostico = null)
     {
@@ -41,16 +45,13 @@ public sealed class ConsultaRastreamentoService(ConfiguracaoAutomacao configurac
         progresso.Report("Abrindo portal");
         await AbrirPortalAsync(navegador, cancellationToken);
 
-        var scriptCaptura = RecursosAplicacao.LerTexto("Scripts.CapturarCaptcha.js");
-        var scriptPreenchimento = RecursosAplicacao.LerTexto("Scripts.PreencherConsulta.js");
-        var scriptEstado = RecursosAplicacao.LerTexto("Scripts.ObterEstadoConsulta.js");
         string? origemAnterior = null;
 
         for (var tentativa = 1; tentativa <= configuracao.MaximoTentativas; tentativa++)
         {
             cancellationToken.ThrowIfCancellationRequested();
             progresso.Report($"Lendo CAPTCHA · {tentativa}/{configuracao.MaximoTentativas}");
-            var (imagem, conteudo) = await CapturarCaptchaAsync(navegador, scriptCaptura, origemAnterior,
+            var (imagem, conteudo) = await CapturarCaptchaAsync(navegador, origemAnterior,
                 tentativa, diretorioDiagnostico, cancellationToken);
             var reconhecimento = await ReconhecerCaptchaAsync(conteudo, tentativa, cancellationToken);
 
@@ -58,7 +59,7 @@ public sealed class ConsultaRastreamentoService(ConfiguracaoAutomacao configurac
             {
                 progresso.Report("Consultando objeto");
                 var estado = await EnviarConsultaAsync(navegador, codigoNormalizado, imagem.Origem, reconhecimento.Texto,
-                    scriptPreenchimento, scriptEstado, cancellationToken);
+                    cancellationToken);
                 if (estado.Estado == "eventos")
                 {
                     logger.LogInformation("CAPTCHA aceito pelo portal na tentativa {Tentativa}.", tentativa);
@@ -100,10 +101,10 @@ public sealed class ConsultaRastreamentoService(ConfiguracaoAutomacao configurac
     }
 
     private async Task<(ImagemCaptcha Imagem, byte[] Conteudo)> CapturarCaptchaAsync(ChromiumWebBrowser navegador,
-        string scriptCaptura, string? origemAnterior, int tentativa, string? diretorioDiagnostico, CancellationToken cancellationToken)
+        string? origemAnterior, int tentativa, string? diretorioDiagnostico, CancellationToken cancellationToken)
     {
         ValidarEnderecoPortal(navegador);
-        var script = scriptCaptura.Replace("{{origemAnterior}}", JsonSerializer.Serialize(origemAnterior));
+        var script = ScriptCaptura.Replace("{{origemAnterior}}", JsonSerializer.Serialize(origemAnterior));
         var imagem = await javascript.AguardarAsync<ImagemCaptcha>(navegador, script, cancellationToken);
         var conteudo = Convert.FromBase64String(imagem.ConteudoBase64);
         if (diretorioDiagnostico is not null)
@@ -139,16 +140,16 @@ public sealed class ConsultaRastreamentoService(ConfiguracaoAutomacao configurac
     }
 
     private async Task<EstadoConsultaPagina> EnviarConsultaAsync(ChromiumWebBrowser navegador, string codigo,
-        string origemImagem, string captcha, string scriptPreenchimento, string scriptEstado, CancellationToken cancellationToken)
+        string origemImagem, string captcha, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         ValidarEnderecoPortal(navegador);
-        var script = scriptPreenchimento.Replace("{{origemImagem}}", JsonSerializer.Serialize(origemImagem))
+        var script = ScriptPreenchimento.Replace("{{origemImagem}}", JsonSerializer.Serialize(origemImagem))
             .Replace("{{codigo}}", JsonSerializer.Serialize(codigo))
             .Replace("{{captcha}}", JsonSerializer.Serialize(captcha));
         if (!await javascript.ExecutarAsync<bool>(navegador, script, cancellationToken))
             throw new InvalidOperationException("O script não confirmou o envio da consulta ao portal.");
-        return await javascript.AguardarAsync<EstadoConsultaPagina>(navegador, scriptEstado, cancellationToken);
+        return await javascript.AguardarAsync<EstadoConsultaPagina>(navegador, ScriptEstado, cancellationToken);
     }
 
     private async Task<ResultadoRastreamento> ExtrairResultadoAsync(ChromiumWebBrowser navegador, string codigo, CancellationToken cancellationToken)

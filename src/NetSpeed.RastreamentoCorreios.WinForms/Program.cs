@@ -55,32 +55,9 @@ internal static class Program
             if (!inicializado)
                 throw new InvalidOperationException($"O Chromium não pôde ser inicializado. Código: {Cef.GetExitCode()}.");
 
-            var servicos = new ServiceCollection();
-            servicos.AddSingleton(configuracao);
-            servicos.AddSingleton(registro);
-            servicos.AddLogging(logging => logging.AddProvider(registro));
-            servicos.AddSingleton<JavascriptCorreiosService>();
-            servicos.AddSingleton<ConsultaRastreamentoService>();
-            servicos.AddSingleton<ConsultaLoteService>();
-            servicos.AddSingleton<ExtracaoEventosService>();
-            servicos.AddSingleton<PreProcessamentoImagemService>();
-            servicos.AddSingleton<IProcessamentoCaptchaService, ProcessamentoCaptchaService>();
-            servicos.AddSingleton<NavegacaoCorreiosService>();
-            servicos.AddSingleton<ExportacaoJsonService>();
-            servicos.AddSingleton<DiagnosticoNavegadorService>();
-            servicos.AddTransient<FormularioPrincipal>();
-            using var provedor = servicos.BuildServiceProvider();
+            using var provedor = CriarProvedorServicos(configuracao, registro);
             using var formulario = provedor.GetRequiredService<FormularioPrincipal>();
-            if (args.Length == 1 && args[0] is "--verificar-inicializacao" or "--inspecionar-portal")
-                formulario.HabilitarVerificacaoInicializacao(Path.Combine(AppContext.BaseDirectory, "verificacao-inicializacao.json"), args[0] == "--inspecionar-portal");
-            else if (args.Length == 2 && args[0] == "--verificar-extracao")
-                formulario.HabilitarTesteExtracao(args[1]);
-            else if (args.Length == 1 && args[0] == "--verificar-cancelamento")
-                formulario.HabilitarVerificacaoCancelamento();
-            else if (args.Length == 2 && args[0] == "--consultar")
-                formulario.HabilitarConsultaDiagnostico(args[1]);
-            else if (args.Length == 1)
-                formulario.DefinirCodigoInicial(args[0]);
+            ConfigurarExecucao(formulario, args);
             Application.Run(formulario);
             return Environment.ExitCode;
         }
@@ -105,6 +82,39 @@ internal static class Program
             }
         }
     }
+    private static ServiceProvider CriarProvedorServicos(ConfiguracaoAutomacao configuracao, RegistroExecucaoProvider registro)
+    {
+        var servicos = new ServiceCollection();
+        servicos.AddSingleton(configuracao);
+        servicos.AddSingleton(registro);
+        servicos.AddLogging(logging => logging.AddProvider(registro));
+        servicos.AddSingleton<JavascriptCorreiosService>();
+        servicos.AddSingleton<ConsultaRastreamentoService>();
+        servicos.AddSingleton<ConsultaLoteService>();
+        servicos.AddSingleton<ExtracaoEventosService>();
+        servicos.AddSingleton<PreProcessamentoImagemService>();
+        servicos.AddSingleton<IProcessamentoCaptchaService, ProcessamentoCaptchaService>();
+        servicos.AddSingleton<NavegacaoCorreiosService>();
+        servicos.AddSingleton<ExportacaoJsonService>();
+        servicos.AddSingleton<DiagnosticoNavegadorService>();
+        servicos.AddTransient<FormularioPrincipal>();
+        return servicos.BuildServiceProvider();
+    }
+
+    private static void ConfigurarExecucao(FormularioPrincipal formulario, string[] args)
+    {
+        if (args.Length == 1 && args[0] is "--verificar-inicializacao" or "--inspecionar-portal")
+            formulario.HabilitarVerificacaoInicializacao(Path.Combine(AppContext.BaseDirectory, "verificacao-inicializacao.json"), args[0] == "--inspecionar-portal");
+        else if (args.Length == 2 && args[0] == "--verificar-extracao")
+            formulario.HabilitarTesteExtracao(args[1]);
+        else if (args.Length == 1 && args[0] == "--verificar-cancelamento")
+            formulario.HabilitarVerificacaoCancelamento();
+        else if (args.Length == 2 && args[0] == "--consultar")
+            formulario.HabilitarConsultaDiagnostico(args[1]);
+        else if (args.Length == 1)
+            formulario.DefinirCodigoInicial(args[0]);
+    }
+
     private static async Task<int> ExecutarOcrArquivoAsync(string caminho, ConfiguracaoAutomacao configuracao,
         RegistroExecucaoProvider registro)
     {

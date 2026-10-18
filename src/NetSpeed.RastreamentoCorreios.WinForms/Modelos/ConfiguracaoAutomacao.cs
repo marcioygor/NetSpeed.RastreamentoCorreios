@@ -27,17 +27,63 @@ public sealed record ConfiguracaoAutomacao
 
     public void Validar()
     {
-        if (UrlPortal is null || !UrlPortal.IsAbsoluteUri || UrlPortal.Scheme != Uri.UriSchemeHttps)
-            throw new InvalidDataException("A URL do portal deve ser um endereço HTTPS absoluto.");
-        if (TimeoutNavegacaoSegundos is < 1 or > 300 || TimeoutElementoSegundos is < 1 or > 300 || TimeoutOcrSegundos is < 1 or > 300)
-            throw new InvalidDataException("Os timeouts devem estar entre 1 e 300 segundos.");
-        if (IntervaloVerificacaoMilissegundos is < 50 or > 5000)
-            throw new InvalidDataException("O intervalo de verificação deve estar entre 50 e 5000 ms.");
-        if (!float.IsFinite(ConfiancaMinimaCaptcha) || ConfiancaMinimaCaptcha is < 0 or > 1)
+        ValidarUrlPortal();
+        ValidarTimeouts();
+        ValidarIntervaloVerificacao();
+        ValidarConfiancaCaptcha();
+        ValidarFormatoCaptcha();
+        ValidarTentativas();
+    }
+
+    private void ValidarUrlPortal()
+    {
+        if (UrlPortal is null || !UrlPortal.IsAbsoluteUri)
+            throw new InvalidDataException("A URL do portal deve ser um endereço absoluto.");
+        if (UrlPortal.Scheme != Uri.UriSchemeHttps)
+            throw new InvalidDataException("A URL do portal deve utilizar HTTPS.");
+    }
+
+    private void ValidarTimeouts()
+    {
+        ValidarIntervalo(TimeoutNavegacaoSegundos, 1, 300, "O timeout de navegação deve estar entre 1 e 300 segundos.");
+        ValidarIntervalo(TimeoutElementoSegundos, 1, 300, "O timeout de espera dos elementos deve estar entre 1 e 300 segundos.");
+        ValidarIntervalo(TimeoutOcrSegundos, 1, 300, "O timeout do OCR deve estar entre 1 e 300 segundos.");
+    }
+
+    private void ValidarIntervaloVerificacao() => ValidarIntervalo(IntervaloVerificacaoMilissegundos, 50, 5000,
+        "O intervalo de verificação deve estar entre 50 e 5000 ms.");
+
+    private void ValidarConfiancaCaptcha()
+    {
+        if (!float.IsFinite(ConfiancaMinimaCaptcha))
+            throw new InvalidDataException("A confiança mínima do OCR deve ser um número finito.");
+        if (ConfiancaMinimaCaptcha is < 0 or > 1)
             throw new InvalidDataException("A confiança mínima do OCR deve estar entre zero e um.");
-        if (MinimoCaracteresCaptcha < 1 || MaximoCaracteresCaptcha > 12 || MinimoCaracteresCaptcha > MaximoCaracteresCaptcha || string.IsNullOrWhiteSpace(CaracteresCaptcha) || CaracteresCaptcha.Any(c => !char.IsAsciiLetterOrDigit(c)))
-            throw new InvalidDataException("O formato configurado para o CAPTCHA é inválido.");
-        if (MaximoTentativas is < 1 or > 10 || IntervaloTentativasMilissegundos is < 100 or > 30000)
-            throw new InvalidDataException("A configuração de tentativas está fora dos limites permitidos.");
+    }
+
+    private void ValidarFormatoCaptcha()
+    {
+        if (MinimoCaracteresCaptcha < 1)
+            throw new InvalidDataException("O número mínimo de caracteres do CAPTCHA deve ser pelo menos 1.");
+        if (MaximoCaracteresCaptcha > 12)
+            throw new InvalidDataException("O número máximo de caracteres do CAPTCHA não pode exceder 12.");
+        if (MinimoCaracteresCaptcha > MaximoCaracteresCaptcha)
+            throw new InvalidDataException("O número mínimo de caracteres do CAPTCHA não pode exceder o máximo.");
+        if (string.IsNullOrWhiteSpace(CaracteresCaptcha))
+            throw new InvalidDataException("Informe os caracteres permitidos no CAPTCHA.");
+        if (!CaracteresCaptcha.All(char.IsAsciiLetterOrDigit))
+            throw new InvalidDataException("Os caracteres permitidos no CAPTCHA devem conter apenas letras ASCII e números.");
+    }
+
+    private void ValidarTentativas()
+    {
+        ValidarIntervalo(MaximoTentativas, 1, 10, "O número máximo de tentativas deve estar entre 1 e 10.");
+        ValidarIntervalo(IntervaloTentativasMilissegundos, 100, 30000, "O intervalo entre tentativas deve estar entre 100 e 30000 ms.");
+    }
+
+    private static void ValidarIntervalo(int valor, int minimo, int maximo, string mensagem)
+    {
+        if (valor < minimo || valor > maximo)
+            throw new InvalidDataException(mensagem);
     }
 }
