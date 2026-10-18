@@ -398,7 +398,7 @@ partial class FormularioPrincipal
         contadorEventos.Name = "contadorEventos";
         contadorEventos.Size = new Size(584, 30);
         contadorEventos.TabIndex = 0;
-        contadorEventos.Text = "RESULTADO  ·  0 eventos";
+        contadorEventos.Text = "RESULTADO  ·  Sem resultado";
         // 
         // abas
         // 
@@ -428,7 +428,7 @@ partial class FormularioPrincipal
         areaEventos.ColumnCount = 1;
         areaEventos.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
         areaEventos.RowCount = 2;
-        areaEventos.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        areaEventos.RowStyles.Add(new RowStyle(SizeType.Absolute, 0F));
         areaEventos.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
         areaEventos.Dock = DockStyle.Fill;
         areaEventos.Margin = Padding.Empty;
@@ -443,6 +443,7 @@ partial class FormularioPrincipal
         seletorEventos.Dock = DockStyle.Fill;
         seletorEventos.DropDownStyle = ComboBoxStyle.DropDownList;
         seletorEventos.Enabled = false;
+        seletorEventos.Visible = false;
         seletorEventos.Margin = new Padding(0, 0, 0, 6);
         seletorEventos.Name = "seletorEventos";
         seletorEventos.TabIndex = 0;
@@ -479,7 +480,7 @@ partial class FormularioPrincipal
         rotuloSemEventos.Padding = new Padding(16);
         rotuloSemEventos.Size = new Size(568, 364);
         rotuloSemEventos.TabIndex = 1;
-        rotuloSemEventos.Text = "Nenhum evento disponível. Inicie uma consulta.";
+        rotuloSemEventos.Text = "Sem resultado. Inicie uma consulta.";
         rotuloSemEventos.TextAlign = ContentAlignment.MiddleCenter;
         // 
         // abaJson
@@ -498,7 +499,7 @@ partial class FormularioPrincipal
         areaJson.ColumnCount = 1;
         areaJson.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
         areaJson.RowCount = 2;
-        areaJson.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        areaJson.RowStyles.Add(new RowStyle(SizeType.Absolute, 0F));
         areaJson.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
         areaJson.Dock = DockStyle.Fill;
         areaJson.Margin = Padding.Empty;
@@ -513,6 +514,7 @@ partial class FormularioPrincipal
         seletorJson.Dock = DockStyle.Fill;
         seletorJson.DropDownStyle = ComboBoxStyle.DropDownList;
         seletorJson.Enabled = false;
+        seletorJson.Visible = false;
         seletorJson.Margin = new Padding(0, 0, 0, 6);
         seletorJson.Name = "seletorJson";
         seletorJson.TabIndex = 0;

@@ -316,7 +316,7 @@ public partial class FormularioPrincipal : Form
         botaoCancelar.Enabled = !ociosa && consultaEmAndamento && !fechando;
         botaoCopiar.Enabled = ociosa && PossuiResultado;
         botaoExportar.Enabled = ociosa && PossuiResultado;
-        seletorJson.Enabled = ociosa && seletorJson.Items.Count > 1;
+        seletorJson.Enabled = ociosa && seletorJson.Items.Count > 2;
     }
 
     private void AtualizarMensagemEventos()
@@ -329,7 +329,7 @@ public partial class FormularioPrincipal : Form
         else if (seletorEventos.SelectedItem is ResultadoConsultaObjeto objeto)
             rotuloSemEventos.Text = objeto.Erro ?? $"Nenhum evento disponível para {objeto.CodigoInformado}.";
         else
-            rotuloSemEventos.Text = "Nenhum evento disponível. Inicie uma consulta ou selecione um objeto concluído.";
+            rotuloSemEventos.Text = "Sem resultado. Inicie uma consulta.";
         if (rotuloSemEventos.Visible)
             rotuloSemEventos.BringToFront();
     }

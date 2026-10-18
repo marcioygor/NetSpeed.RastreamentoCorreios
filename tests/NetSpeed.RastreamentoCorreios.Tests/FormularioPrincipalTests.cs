@@ -306,7 +306,8 @@ public sealed class FormularioPrincipalTests
                     abas.SelectedTab = Campo<TabPage>("abaJson");
                     formulario.PerformLayout();
                     Application.DoEvents();
-                    Assert.True(seletor.Bottom <= json.Top);
+                    Assert.False(seletor.Visible);
+                    Assert.Equal(0, Campo<TableLayoutPanel>("areaJson").GetRowHeights()[0]);
                 }
                 finally
                 {
@@ -341,6 +342,127 @@ public sealed class FormularioPrincipalTests
         {
             Directory.Delete(diretorio, true);
         }
+    }
+
+
+    [Fact]
+    public async Task SeletoresAparecemSomenteComMultiplosObjetosSemReservarEspacoVazio()
+    {
+        var conclusao = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var thread = new Thread(() =>
+        {
+            try
+            {
+                using var formulario = new FormularioPrincipal();
+                const BindingFlags flags = BindingFlags.Instance | BindingFlags.NonPublic;
+                T Campo<T>(string nome) => (T)typeof(FormularioPrincipal).GetField(nome, flags)!.GetValue(formulario)!;
+                void Definir(string nome, object? valor) => typeof(FormularioPrincipal).GetField(nome, flags)!.SetValue(formulario, valor);
+                void Executar(string nome) => typeof(FormularioPrincipal).GetMethod(nome, flags)!.Invoke(formulario, null);
+                Definir("exportacao", new ExportacaoJsonService());
+                var abas = Campo<TabControl>("abas");
+                var eventos = Campo<ComboBox>("seletorEventos");
+                var json = Campo<ComboBox>("seletorJson");
+                eventos.SelectedIndexChanged += typeof(FormularioPrincipal).GetMethod("AoSelecionarCodigoEventos", flags)!
+                    .CreateDelegate<EventHandler>(formulario);
+                json.SelectedIndexChanged += typeof(FormularioPrincipal).GetMethod("AoSelecionarCodigoJson", flags)!
+                    .CreateDelegate<EventHandler>(formulario);
+                void VerificarVisibilidade(bool visivel)
+                {
+                    foreach (var nome in new[] { "Eventos", "Json" })
+                    {
+                        abas.SelectedTab = Campo<TabPage>("aba" + nome);
+                        formulario.PerformLayout();
+                        Application.DoEvents();
+                        var seletor = Campo<ComboBox>("seletor" + nome);
+                        var painel = Campo<TableLayoutPanel>("area" + nome);
+                        Assert.Equal(visivel, seletor.Visible);
+                        if (visivel)
+                            Assert.True(painel.GetRowHeights()[0] > 0);
+                        else
+                            Assert.Equal(0, painel.GetRowHeights()[0]);
+                    }
+                }
+                void Atualizar()
+                {
+                    Executar("AtualizarSeletorEventos");
+                    Executar("AtualizarSeletorJson");
+                }
+                formulario.Show();
+                VerificarVisibilidade(false);
+                Atualizar();
+                VerificarVisibilidade(false);
+                Assert.Contains("Sem resultado", Campo<Label>("contadorEventos").Text);
+
+                var primeiro = new ResultadoConsultaObjeto
+                {
+                    CodigoInformado = "AA123456789BR",
+                    Resultado = new ResultadoRastreamento
+                    {
+                        CodigoRastreamento = "AA123456789BR",
+                        Eventos = [new EventoRastreamento { Situacao = "Primeiro evento" }]
+                    }
+                };
+                var segundo = new ResultadoConsultaObjeto
+                {
+                    CodigoInformado = "BB123456789BR",
+                    Resultado = new ResultadoRastreamento
+                    {
+                        CodigoRastreamento = "BB123456789BR",
+                        Eventos = [new EventoRastreamento { Situacao = "Segundo evento" }]
+                    }
+                };
+                Definir("resultadoAtual", primeiro.Resultado);
+                Atualizar();
+                VerificarVisibilidade(false);
+                Assert.Single(Campo<ListView>("listaEventos").Items.Cast<ListViewItem>());
+                Assert.Contains("AA123456789BR", Campo<RichTextBox>("campoJson").Text);
+                Assert.True(Campo<Button>("botaoCopiar").Enabled);
+                Assert.True(Campo<Button>("botaoExportar").Enabled);
+
+                Definir("resultadoLoteAtual", new List<ResultadoConsultaObjeto> { primeiro, segundo });
+                Atualizar();
+                VerificarVisibilidade(true);
+                Assert.Equal(0, json.SelectedIndex);
+                Assert.Equal("Todos os objetos (lote completo)", json.Text);
+                eventos.SelectedIndex = 1;
+                Assert.Equal(0, json.SelectedIndex);
+                json.SelectedIndex = 1;
+                Assert.Equal(1, eventos.SelectedIndex);
+
+                // Um lote parcialmente concluído com apenas um resultado também dispensa os seletores.
+                Definir("resultadoLoteAtual", new List<ResultadoConsultaObjeto> { segundo });
+                Atualizar();
+                VerificarVisibilidade(false);
+                Assert.DoesNotContain("AA123456789BR", Campo<RichTextBox>("campoJson").Text);
+                Assert.Contains("BB123456789BR", Campo<RichTextBox>("campoJson").Text);
+
+                Definir("resultadoAtual", null);
+                Definir("resultadoLoteAtual", new List<ResultadoConsultaObjeto>());
+                Executar("LimparEventosConsulta");
+                Executar("LimparJsonConsulta");
+                Atualizar();
+                VerificarVisibilidade(false);
+                Assert.Empty(eventos.Items.Cast<object>());
+                Assert.Empty(json.Items.Cast<object>());
+                Assert.Empty(Campo<ListView>("listaEventos").Items.Cast<ListViewItem>());
+                Assert.Empty(Campo<RichTextBox>("campoJson").Text);
+                Assert.Contains("Sem resultado", Campo<Label>("contadorEventos").Text);
+                Assert.False(Campo<Button>("botaoCopiar").Enabled);
+                Assert.False(Campo<Button>("botaoExportar").Enabled);
+
+                Definir("resultadoLoteAtual", new List<ResultadoConsultaObjeto> { segundo, primeiro });
+                Atualizar();
+                VerificarVisibilidade(true);
+                Assert.Same(segundo, eventos.SelectedItem);
+                Assert.Equal(0, json.SelectedIndex);
+                formulario.Close();
+                conclusao.SetResult();
+            }
+            catch (Exception excecao) { conclusao.SetException(excecao); }
+        });
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+        await conclusao.Task.WaitAsync(TimeSpan.FromSeconds(20));
     }
 
 }

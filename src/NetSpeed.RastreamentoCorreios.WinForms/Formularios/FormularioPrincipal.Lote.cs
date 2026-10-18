@@ -120,7 +120,9 @@ public partial class FormularioPrincipal
     {
         seletorEventos.Items.Clear();
         seletorEventos.Enabled = false;
+        DefinirVisibilidadeSeletor(seletorEventos, areaEventos, false);
         listaEventos.Items.Clear();
+        contadorEventos.Text = "RESULTADO  ·  Sem resultado";
         AtualizarMensagemEventos();
     }
 
@@ -139,6 +141,7 @@ public partial class FormularioPrincipal
                     Resultado = resultadoAtual
                 });
             seletorEventos.Enabled = operacaoAtual is null && seletorEventos.Items.Count > 1;
+            DefinirVisibilidadeSeletor(seletorEventos, areaEventos, seletorEventos.Items.Count > 1);
             if (seletorEventos.Items.Count > 0)
                 seletorEventos.SelectedIndex = 0;
         }
@@ -158,6 +161,7 @@ public partial class FormularioPrincipal
     {
         seletorJson.Items.Clear();
         seletorJson.Enabled = false;
+        DefinirVisibilidadeSeletor(seletorJson, areaJson, false);
         campoJson.Clear();
     }
 
@@ -181,6 +185,7 @@ public partial class FormularioPrincipal
                     Resultado = resultadoAtual
                 });
             }
+            DefinirVisibilidadeSeletor(seletorJson, areaJson, seletorJson.Items.Count > 2);
             if (seletorJson.Items.Count > 0)
                 seletorJson.SelectedIndex = 0;
             AtualizarBotoes();
@@ -205,6 +210,13 @@ public partial class FormularioPrincipal
             campoJson.Text = exportacao.Serializar(resultadoAtual);
         else
             campoJson.Clear();
+    }
+
+    private static void DefinirVisibilidadeSeletor(ComboBox seletor, TableLayoutPanel painel, bool visivel)
+    {
+        seletor.Visible = visivel;
+        painel.RowStyles[0].SizeType = visivel ? SizeType.AutoSize : SizeType.Absolute;
+        painel.RowStyles[0].Height = 0;
     }
 
     private string ObterJsonAtual() => campoJson.Text;
